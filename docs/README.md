@@ -11,3 +11,4 @@
 | [Database](database.md)                    | developers | Bundled ecmspy.com SQLite DB: schema, lookups, value conversion, updating it              |
 | [Live data & logging](logging.md)          | developers | Polling service, binary log format, MSL conversion, trouble-code decoding                 |
 | [Development](development.md)              | developers | Build, signing, tests, simulator, conventions, releasing, known issues                    |
+| [Calibration converter](calibration-converter.md) | developers | Plan and status of the offline tool (`tools/calconv`) that compares and will convert tunes between firmware layouts (first case BUE2D → BUEYD) |

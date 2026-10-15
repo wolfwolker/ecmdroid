@@ -94,7 +94,9 @@ only as reliable as those sources.
   3272 bytes and BUE2D is 3796 bytes, and 485 of the 527 variables they share
   sit at different offsets. EcmDroid refuses such files: the size → ID detection
   and the burn's ID check both reject them. Individual settings can be
-  re-entered or moved over by variable name, but you can't copy the file.
+  re-entered or moved over by variable name, but you can't copy the file. A
+  planned [calibration converter](calibration-converter.md) would do this
+  automatically.
 
 ### One ECM hardware for XB and 1125
 
@@ -152,7 +154,8 @@ motorcycle. Check this before relying on such a swap.
   dealers can still do this today wasn't verified.
 - The dealer installs firmware **and** a stock calibration. Your previous
   `.xpr` won't load afterwards, so save it first and note your custom settings
-  to re-enter them.
+  to re-enter them. The planned
+  [calibration converter](calibration-converter.md) would carry them over.
 - Flashing firmware without the dealer tool isn't possible with EcmDroid and
   isn't planned. Community posts
   mention unreleased attempts, but no public tool or protocol description was

@@ -24,6 +24,18 @@ All tests live in `app/src/androidTest` (no JVM unit tests). They load fixture E
 
 Java source/target is 1.8; indent with tabs; GPL v3 header on every source file. Releases: bump `versionCode`/`versionName` in `app/build.gradle.kts`, add a `CHANGES` entry, commit "Prepare vX.Y.Z", tag `ecmdroid-vX.Y.Z`.
 
+### Offline tools
+
+`tools/calconv/` is the calibration converter: an offline Python (3.11+, standard library only) helper that compares and, later, converts `.xpr` images between firmware layouts. It reads the app's bundled DB directly. Python code uses 4-space indents and the same GPL header as a comment. The plan and its rules are in `docs/calibration-converter.md`, and usage in `tools/calconv/README.md`.
+
+```sh
+tools/calconv/test.py                              # tests (pkgx shebang; or: python3 tools/calconv/test.py)
+tools/calconv/calconv.py plan --from BUE2D --to BUEYD
+tools/calconv/calconv.py diff a.xpr b.xpr          # exit code 1 if they differ
+```
+
+When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN).
+
 ## Architecture
 
 - **`ECM`** (singleton) owns the link (one `connect(...)` overload per transport, all adapted to an `InputStream`/`OutputStream`), the current `EEPROM` image and the last runtime frame. `sendPDU()` is `synchronized` because UI tasks and the service's reader thread share the link. `MainActivity.ConnectTask` extends `FetchTask`, so every connect also identifies the ECM and reads the whole EEPROM.

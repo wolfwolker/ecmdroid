@@ -193,7 +193,8 @@ ranges.
 
 \* non-secret runtime variables visible in the Data Channels list. EEPROM vars
 are rows. A few names are listed twice: `KBaro_Read` on BUE1D, four on BUE3D,
-and `KVS_RPM_Revs` on BUEOD, which has two different definitions.
+and `KVS_RPM_Revs` on BUEOD, which has two different definitions. `calconv
+plan` reports these as database warnings.
 
 The offset tables also contain categories with no `eeprom` row (0, 11, 22, 33,
 1051). No ECM ID can reach them.
@@ -259,3 +260,6 @@ Then check the result:
   `Constants.Variables` still exists.
 - Check that `runtime*.tab` (used by the MSL converter, see
   [logging.md](logging.md)) still matches `rtoffsets`.
+- Run `tools/calconv/test.py`. It asserts layout counts. Then look at the
+  database warnings of `calconv plan` for contradictions, overlaps and
+  duplicates (see [calibration-converter.md](calibration-converter.md)).

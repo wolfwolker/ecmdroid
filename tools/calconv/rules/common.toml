@@ -1,0 +1,21 @@
+# Rules for every conversion, whatever the source and target layout.
+# Rules for one direction (e.g. BUE2D-BUEYD.toml) come in phase 4.
+# See docs/calibration-converter.md.
+
+[exclude]
+# Page 0 holds per-unit data: VIN, odometer, security PIN, manufacturing
+# data, stored trouble codes and adaptive values. It's never copied.
+page0 = true
+
+# Variables that identify the firmware layout and the calibration.
+identification = ["CSR", "Country_ID", "Cal_ID", "KID_Series", "KID_Market", "KID_Version"]
+
+[model_guard]
+# Variables that describe the engine and harness. If they differ between
+# source and target, the source is probably from another model (XB <-> 1125).
+# Initial list, still to be curated (see the plan's open questions).
+vars = ["KEng_Ref"]
+
+[privacy]
+# Never printed unless --show-private is given.
+vars = ["KVIN", "KVINSpare", "Sec_PIN", "Sec_Stat", "Sec_Spare"]

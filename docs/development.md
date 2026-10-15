@@ -96,6 +96,20 @@ host and port `6275`, and connect. On the Android emulator, the host machine is
 
 The same TCP transport works with WiFi-to-serial bridges.
 
+## Offline tools
+
+[`tools/calconv/`](../tools/calconv/README.md) is a Python 3.11+ helper, with
+no dependencies, that compares EEPROM images by variable name, also across
+firmware layouts. It's the first part of the
+[calibration converter](calibration-converter.md). It reads the bundled
+database directly, so its tests also catch unexpected database changes:
+
+```sh
+tools/calconv/test.py                    # needs pkgx; or: python3 tools/calconv/test.py
+tools/calconv/calconv.py layouts         # all layouts and file sizes
+tools/calconv/calconv.py diff saved.xpr fetched.xpr
+```
+
 ## Project layout
 
 ```
@@ -110,6 +124,7 @@ app/src/main/resources/                   runtime{1,2,3}.tab (MSL converter colu
 app/src/main/res/xml/                     ecm_setup.xml (Setup screen), app_prefs.xml,
                                           torque_values.xml, device_filter.xml (USB)
 scripts/                                  mysql2sqlite.sh (DB import), mklocalversion
+tools/calconv/                            offline calibration compare/convert tool (Python)
 docs/                                     this documentation
 ```
 
