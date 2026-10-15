@@ -4,7 +4,8 @@
 
 [exclude]
 # Page 0 holds per-unit data: VIN, odometer, security PIN, manufacturing
-# data, stored trouble codes and adaptive values. It's never copied.
+# data (DDFI-3 only; on DDFI/DDFI-2 KMFG_* is in page 1), stored trouble
+# codes and adaptive values. It's never copied.
 page0 = true
 
 # Variables that identify the firmware layout and the calibration.

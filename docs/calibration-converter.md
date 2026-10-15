@@ -154,6 +154,8 @@ target's values. `PC_Run_Stat` and `AMC_KO_Stat` are in page 0.
 
 - **A BUEYD image to test with.** The repository has none. If one is added as
   a fixture, scrub page 0 first: VIN, serial number, odometer and security PIN.
+  (On DDFI and DDFI-2 the serial number is in page 1 instead, at offsets
+  12–13.)
   This is a public repository.
 - **The BUEYD size question, probably settled.** ecmspy.com's list says 3250
   bytes. The bundled database, the live ecmspy.com data and the EcmSpy for Mono
@@ -210,7 +212,10 @@ In order:
 2. **Start from the target.** Anything not copied keeps the target's value,
    including the bytes no variable describes (3% of BUEYD, 16% of BUE2D).
 3. **Never copy page 0.** It holds VIN, odometer, security PIN, manufacturing
-   data, stored trouble codes and adaptive values.
+   data, stored trouble codes and adaptive values. On DDFI and DDFI-2 the
+   manufacturing date and serial number (`KMFG_*`) are in page 1, so excluding
+   page 0 doesn't cover them. They must be excluded by name before `convert`
+   handles those families.
 4. **Never copy identification variables:** `CSR`, `Country_ID`, `Cal_ID`,
    `KID_*`.
 5. **Check that it's the same model.** Some variables describe the engine and

@@ -34,7 +34,7 @@ tools/calconv/calconv.py plan --from BUE2D --to BUEYD
 tools/calconv/calconv.py diff a.xpr b.xpr          # exit code 1 if they differ
 ```
 
-When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN).
+When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN). On DDFI/DDFI-2 the serial number and manufacturing date are in page 1 (offsets 9–13), so scrub those too.
 
 ## Architecture
 
