@@ -13,13 +13,13 @@ The labels in parentheses are the names the ECM database uses (`names.varname` /
 | **P&A race ECM**         | Parts & Accessories race ECM. Uses the stock protocol (9600 baud). Usually has a printed "RACE USE ONLY" marking.                            |
 | **Factory Race ECM**     | Race ECM with its own bus address `0x55` and 19200 baud. Usually has an engraved "RACE USE ONLY" marking.                                    |
 | **EEPROM**               | Non-volatile ECM memory holding configuration, maps and learned values. See [eeprom.md](eeprom.md).                                          |
-| **Page / page 0**        | EEPROM transfer unit (≤ 256 bytes). Page 0 is a small special page with stored errors, Baro, Front AFV and per-unit data.                    |
+| **Page / page 0**        | EEPROM transfer unit (≤ 256 bytes). Page 0 is a small special page with stored errors, Baro, Front AFV and per-unit data (on DDFI-3: VIN, odometer, security, counters, manufacturing date and serial). On DDFI/DDFI-2 the manufacturing date and serial are in page 1. |
 | **Firmware / calibration** | Firmware = the ECM's program, which defines the ECM ID and EEPROM layout (changed only by a dealer reflash). Calibration = the EEPROM content (`.xpr`), which EcmDroid can read and burn. See [supported-ecms.md](supported-ecms.md#ddfi-3-firmware-calibration-and-swapping-ecms). |
 | **Fetch / Burn**         | Read the EEPROM from the ECM / write it back.                                                                                                |
 | **XPR / EPR file**       | ECMSpy's EEPROM image files: `.xpr` = full image including page 0, `.epr` = without page 0. Both are raw bytes. See [eeprom.md](eeprom.md#eeprom-files-xpr). |
 | **Runtime data / live data** | The block of current sensor values and states the ECM returns for the `'C'` request.                                                    |
 | **AFV** (`LFuel`, `LFuel1`) | Adaptive Fuel Value ("Learned Fuel"), in percent. A correction the ECM learns from the O2 sensor in the Closed Loop Learn (and Open Loop Learn) regimes and applies in open loop and open-loop WOT. Rear cylinder (`LFuel`) and, on DDFI-3, front (`LFuel1`). |
-| **EGO correction** (`FBFuel`, *EGO Corr.*) | Short-term closed-loop fuel correction from the exhaust gas oxygen sensor.                                            |
+| **EGO correction** (`FBFuel`, *EGO Corr.*) | Short-term closed-loop fuel correction from the exhaust gas oxygen sensor. The ECM still reports it in open loop, but frozen at the last closed-loop value and not applied. |
 | **Closed loop / open loop** | Fuelling that does / doesn't use O2 sensor feedback. The MSL converter uses Flags2 bit 7 to tell them apart.                              |
 | **O2 sensor**            | Narrow-band exhaust oxygen sensor. *O2 Sensor Target Voltage* (`KO2_Midpoint`) is the voltage the ECM aims for in closed loop.               |
 | **WUE** (`CrTE`)         | Warm-up enrichment ("Engine Temp Correction").                                                                                               |

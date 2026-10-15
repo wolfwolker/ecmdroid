@@ -21,9 +21,17 @@ database defines the page list for each ECM layout (table `pages`, see
     (`HDiag0`)
   - DDFI-3: stored error bytes (`HDiag0`–`HDiag6`), `KBaro`, Front AFV
     (`LFuel1`), manufacturing date/serial (`KMFG_*`), odometer (`Odo`), VIN
-    (`KVIN`), security PIN data, Active Intake counter, and others
+    (`KVIN`), security PIN data (`Sec_*`), Active Intake counter
+    (`AIC_Count`), and others
 
 DDFI-1 ECMs (BUEIA, BUEGC, BUEJA, BUEKA) and the DDFI-2 BUECB have no page 0.
+
+The manufacturing data isn't in page 0 on every family. On DDFI and DDFI-2,
+the manufacturing date and serial number (`KMFG_Year`, `KMFG_Day`,
+`KMFG_Serial`) are in **page 1**, at offsets 9–13. Only on DDFI-3 are they in
+page 0. So on DDFI and DDFI-2 they can be edited and burned like any other
+page-1 value, and burning an image taken from another ECM also writes that
+ECM's serial number and date.
 
 ## In-memory image and addressing
 
@@ -109,7 +117,9 @@ Values are encoded little-endian. Writing a scaled value reverses the conversion
 variables in `ECM.PAGE_ZERO_VARS_TO_WRITE` are sent: `LFuel1` (Front AFV) and
 `KBaro` (Baro Pressure Sensor value). The page-0 write offset for a variable is
 `0x100 + offset`, where `offset` is the variable's negative buffer offset. This
-leaves counters, VIN, odometer, security and manufacturing data alone. On
+leaves the rest of page 0 alone: counters, VIN, odometer, security data and,
+on DDFI-3, the manufacturing data. (On DDFI and DDFI-2 the manufacturing date
+and serial number are in page 1, so a burn writes them.) On
 BUEOD the Front AFV variable is named `LFuel1_LD`, so the page-0 burn only
 writes `KBaro` there.
 
