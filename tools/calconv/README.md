@@ -2,8 +2,9 @@
 
 `calconv` compares Buell ECM calibration images (`.xpr`/`.epr` EEPROM files)
 by variable name, also across firmware layouts (e.g. BUE2D and BUEYD), and
-converts a calibration from one layout to another. The plan, rules and
-background are in
+converts a calibration from one layout to another. A one-page explanation is
+in [docs/calibration-converter-overview.md](../../docs/calibration-converter-overview.md),
+and the plan, rules and background in
 [docs/calibration-converter.md](../../docs/calibration-converter.md).
 
 **Status:** phases 1–5: `layouts`, `plan`, `info`, `diff`, `convert`, and rule

@@ -75,8 +75,8 @@ details.
 [`tools/calconv`](tools/calconv/README.md) is an offline PC tool that carries a
 tune from one ECM firmware ID to another, e.g. a BUE2D tune onto a BUEYD ECM.
 **It's in testing: don't burn its results on an ECM that runs a motorcycle
-yet.** Riders start with the
-[how-to](docs/calibration-converter-howto.md), developers with the
+yet.** Start with the one-page [overview](docs/calibration-converter-overview.md).
+Riders then read the [how-to](docs/calibration-converter-howto.md), developers the
 [plan and rules](docs/calibration-converter.md).
 
 ## Building

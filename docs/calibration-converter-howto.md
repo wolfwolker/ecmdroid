@@ -2,8 +2,10 @@
 
 This guide is for riders who want to run a tune made for one Buell ECM on an
 ECM with another firmware ID, for example a **BUE2D** tune on a **BUEYD** ECM.
-It uses `calconv`, an offline tool in this repository. The background and the
-rules are in [calibration-converter.md](calibration-converter.md).
+It uses `calconv`, an offline tool in this repository. For a one-page
+explanation, read the [overview](calibration-converter-overview.md) first. The
+background and the rules are in
+[calibration-converter.md](calibration-converter.md).
 
 > **Status (October 2026): in testing.** The tool works and checks its own
 > result, but no converted image has been burned and ridden yet, and the
