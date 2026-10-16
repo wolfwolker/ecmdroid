@@ -48,8 +48,8 @@ comes from EcmDroid's bundled database.
 - IDs in the same layout category share every offset definition. Per-layout
   statistics are in [database.md](database.md#database-coverage).
 
-¹ ecmspy.com lists 3250 bytes as the BUEYD `.xpr` size, but EcmDroid's database
-(page 0 = 40 bytes) gives 3272. A 3250-byte file won't be recognised.
+¹ ecmspy.com lists 3250 bytes as the BUEYD `.xpr` size. That's a typo: EcmDroid's
+database (page 0 = 40 bytes) and real BUEYD images read from ECMs are 3272 bytes.
 
 ### Reading an ECM ID
 

@@ -234,8 +234,8 @@ sqlite3 /tmp/ecmdroid.db "SELECT name, category, type, size, xsize, remark FROM 
 
 The comparison also settled some open data questions:
 
-- the BUEYD `.xpr` size of 3250 bytes on the supported list is most likely a
-  typo, because everything else says 3272;
+- the BUEYD `.xpr` size of 3250 bytes on the supported list is a typo:
+  everything else says 3272, and so do real BUEYD images;
 - the BUE2D size/element mismatches and the BUEYD `Tab_Idle_Spark` 4×4 shape
   are the same upstream.
 
