@@ -245,6 +245,8 @@ def make_plan(db: Database, src_id: str, dst_id: str, rules: CommonRules) -> Pla
             p.excluded[name] = "page 0"
         elif name in rules.identification:
             p.excluded[name] = "identification"
+        elif name in rules.per_unit:
+            p.excluded[name] = "per unit"
         text = " ".join(t for t in (a.label, a.remark, a.description) if t)
         if hint.search(text):
             p.semantic[name] = re.sub(r"\s+", " ", text).strip()

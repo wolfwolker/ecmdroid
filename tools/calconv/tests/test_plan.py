@@ -40,7 +40,7 @@ class TestFirstCase(unittest.TestCase):
         self.assertEqual(42, p.same_offset)
         self.assertEqual(517, len(p.identical))
         self.assertEqual(10, len(p.different))
-        self.assertEqual(495, len(p.copyable))
+        self.assertEqual(492, len(p.copyable))
         self.assertEqual(17, len(p.src_only))
         self.assertEqual(6, len(p.dst_only))
         self.assertEqual({}, p.candidates)
@@ -49,6 +49,7 @@ class TestFirstCase(unittest.TestCase):
         reasons = list(self.p.excluded.values())
         self.assertEqual(20, reasons.count("page 0"))
         self.assertEqual(2, reasons.count("identification"))
+        self.assertEqual(3, reasons.count("per unit"))  # LFuel, Ride_Counter, KTPS0
         self.assertEqual("identification", self.p.excluded["CSR"])
         self.assertEqual("page 0", self.p.excluded["KVIN"])
         for name in self.p.excluded:
@@ -127,6 +128,13 @@ class TestOtherPairs(unittest.TestCase):
         warnings = "\n".join(plan("BUEGB", "BUEIB").warnings["BUEIB"])
         self.assertNotIn("Tab_Fuel_Front", warnings)
         self.assertIn("Tab_Fuel_Cut: elements column says 156", warnings)
+
+    def test_ddfi2_manufacturing_data_is_excluded(self):
+        # On DDFI-2 KMFG_* is in page 1, so only the per-unit rule protects it.
+        p = plan("BUEGB", "BUEIB")
+        for name in ("KMFG_Year", "KMFG_Day", "KMFG_Serial"):
+            self.assertEqual("per unit", p.excluded[name], name)
+            self.assertNotIn(name, p.copyable)
 
     def test_coverage(self):
         self.assertEqual((3175, 3272), coverage(db().layout("BUEYD")))

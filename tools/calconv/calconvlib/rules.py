@@ -31,6 +31,7 @@ class RuleError(Exception):
 class CommonRules:
     exclude_page0: bool = True
     identification: tuple[str, ...] = ()
+    per_unit: tuple[str, ...] = ()
     model_guard: tuple[str, ...] = ()
     private: tuple[str, ...] = ()
 
@@ -57,6 +58,7 @@ def load_common(path: Path | None = None) -> CommonRules:
     return CommonRules(
         exclude_page0=page0,
         identification=_str_list(doc, "exclude", "identification", path),
+        per_unit=_str_list(doc, "exclude", "per_unit", path),
         model_guard=_str_list(doc, "model_guard", "vars", path),
         private=_str_list(doc, "privacy", "vars", path),
     )

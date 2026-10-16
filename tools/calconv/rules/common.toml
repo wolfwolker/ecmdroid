@@ -11,6 +11,15 @@ page0 = true
 # Variables that identify the firmware layout and the calibration.
 identification = ["CSR", "Country_ID", "Cal_ID", "KID_Series", "KID_Market", "KID_Version"]
 
+# Per-unit values outside page 0: learned by the ECM or set on the bike.
+# LFuel = learned rear AFV (the front one, LFuel1, is in page 0 on DDFI-3);
+# reset both to 100 % after burning a converted tune, so the ECM relearns.
+# Ride_Counter = rides since an error was set. KTPS0 = TPS reset voltage
+# (the same 0.27 V in every image seen so far, kept to be safe).
+# KMFG_* = manufacturing date and serial number: in page 0 on DDFI-3, but in
+# page 1 (offsets 9-13) on DDFI and DDFI-2, where only this list protects them.
+per_unit = ["LFuel", "Ride_Counter", "KTPS0", "KMFG_Year", "KMFG_Day", "KMFG_Serial", "KMFG_Trace"]
+
 [model_guard]
 # Variables that describe the engine and harness. If they differ between
 # source and target, the source is probably from another model (XB <-> 1125).

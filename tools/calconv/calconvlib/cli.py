@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import __version__, report
 from .analysis import make_plan
+from .convert import ConversionError, convert
 from .db import DEFAULT_DB, Database, DatabaseError
 from .diff import diff_images
 from .image import ImageError, load_image
@@ -40,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="calconv",
-        description="Compare and (later) convert Buell ECM calibration images (.xpr/.epr) "
+        description="Compare and convert Buell ECM calibration images (.xpr/.epr) "
                     "between firmware layouts. See docs/calibration-converter.md.")
     parser.add_argument("--version", action="version", version=f"calconv {__version__}")
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
@@ -66,6 +67,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id-b", help="ECM ID of the second file")
     p.add_argument("--show-private", action="store_true", help="show VIN and security data")
     p.add_argument("--all", action="store_true", help="also list the equal variables")
+
+    p = sub.add_parser("convert", parents=[common],
+                       help="carry a tune onto an image of another layout (writes a new .xpr)")
+    p.add_argument("--source", type=Path, required=True, help="the tune to carry over, e.g. a BUE2D .xpr")
+    p.add_argument("--target", type=Path, required=True,
+                   help="the target ECM's own image, e.g. a BUEYD .xpr read from it")
+    p.add_argument("--out", type=Path, required=True, help="where to write the result (.xpr)")
+    p.add_argument("--from", dest="src", metavar="ID", help="ECM ID of the source, if its size is ambiguous")
+    p.add_argument("--to", dest="dst", metavar="ID", help="ECM ID of the target, if its size is ambiguous")
+    p.add_argument("--allow-model-mismatch", action="store_true",
+                   help="convert even if engine/harness variables differ (experts only)")
+    p.add_argument("--force", action="store_true", help="overwrite --out if it exists")
+    p.add_argument("--all", action="store_true", help="also list the equal, excluded and target-only variables")
     return parser
 
 
@@ -86,6 +100,23 @@ def run(args: argparse.Namespace) -> tuple[str, int]:
         d = diff_images(a, b, rules.private)
         text = report.diff(d, args.format, args.show_private, args.all)
         return text, EXIT_OK if d.identical else EXIT_DIFFERENT
+    if args.command == "convert":
+        out = args.out
+        for given in (args.source, args.target):
+            if out.resolve() == given.resolve():
+                raise ConversionError(f"--out {out} would overwrite an input file")
+        if out.exists() and not args.force:
+            raise ConversionError(f"{out} exists. Use --force to overwrite it.")
+        source = load_image(db, args.source, args.src)
+        target = load_image(db, args.target, args.dst)
+        c = convert(db, source, target, rules, args.allow_model_mismatch)
+        if c.problems:
+            return report.conversion(c, out, args.format, args.all), EXIT_ERROR
+        try:
+            out.write_bytes(c.result.data)
+        except OSError as e:
+            raise ConversionError(f"can't write {out}: {e.strerror}") from e
+        return report.conversion(c, out, args.format, args.all), EXIT_OK
     raise AssertionError(args.command)
 
 
@@ -93,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         text, code = run(args)
-    except (DatabaseError, ImageError, RuleError) as e:
+    except (DatabaseError, ImageError, RuleError, ConversionError) as e:
         print(f"calconv: error: {e}", file=sys.stderr)
         return EXIT_ERROR
     if args.output:

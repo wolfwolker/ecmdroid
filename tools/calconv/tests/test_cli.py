@@ -42,7 +42,7 @@ class TestCommands(unittest.TestCase):
         code, out, _ = run("plan", "--from", "BUE2D", "--to", "BUEYD", "--format", "json")
         self.assertEqual(EXIT_OK, code)
         data = json.loads(out)
-        self.assertEqual(495, data["counts"]["copyable"])
+        self.assertEqual(492, data["counts"]["copyable"])
         self.assertEqual(["Tab_Idle_Spark"], list(data["semantic_warnings"]))
 
     def test_plan_markdown(self):

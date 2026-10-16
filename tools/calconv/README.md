@@ -6,9 +6,10 @@ will convert a calibration from one layout to another. The plan, rules and
 background are in
 [docs/calibration-converter.md](../../docs/calibration-converter.md).
 
-**Status:** phases 1 and 2 (`layouts`, `plan`, `info`, `diff`). There's no
-`convert` yet. The tool only reads files: it never writes an image and never
-talks to an ECM.
+**Status:** phases 1–3: `layouts`, `plan`, `info`, `diff`, and `convert` for
+variables with identical definitions. `convert` writes a new image and never
+changes its inputs. No command talks to an ECM: you burn the result with
+EcmDroid or EcmSpy for Mono.
 
 ## Running it
 
@@ -42,6 +43,7 @@ definitions as EcmDroid. `--db` selects another one.
 | `plan --from ID --to ID` | Analyses two layouts without any files. It shows what a conversion would copy and what it would lose. It also lists definitions that changed, variables whose meaning depends on the firmware, possible renames, and database problems. |
 | `info FILE [--id ID]` | Identifies an image by its size and shows the ECM information: calibration ID, country ID, serial number, manufacturing date and the model-guard values |
 | `diff FILE_A FILE_B [--id-a ID] [--id-b ID]` | Compares two images by variable name. With the same layout, it also compares raw bytes, including bytes outside any variable. Exit code 0 means identical, 1 different. |
+| `convert --source TUNE --target ECM --out RESULT` | Carries a tune onto an image of another layout (e.g. BUE2D → BUEYD). The result starts as the target image. Only variables with identical definitions are copied. Page 0, identification, per-unit values (learned AFV, TPS reset voltage, …) and the engine-type check keep the target's value. The report lists what was copied, kept for review, or lost. |
 
 Common options:
 
@@ -58,6 +60,7 @@ Examples:
 ./calconv.py info my_ecm.xpr
 ./calconv.py diff before.xpr after.xpr          # e.g. a saved image vs. a fetch after burning
 ./calconv.py info BUEIB.epr --id BUEIB          # 1206 bytes fits BUEIB/BUEIC and B2RIB
+./calconv.py convert --source tune_BUE2D.xpr --target my_ecm_BUEYD.xpr --out tune_on_BUEYD.xpr -o report.md
 ```
 
 ## Layout
@@ -69,10 +72,12 @@ calconvlib/db.py      database access: layouts, pages, variable definitions
 calconvlib/image.py   reading images, decoding values the way the app does
 calconvlib/analysis.py  layout comparison (plan)
 calconvlib/diff.py    image comparison (diff)
+calconvlib/convert.py conversion (convert)
 calconvlib/report.py  Markdown and JSON output
 calconvlib/rules.py   rule files
 rules/common.toml     rules for every conversion: exclusions, model guard, private data
-tests/                unittest suite. It uses the app's test images in app/src/androidTest/resources.
+tests/                unittest suite. It uses the app's test images in app/src/androidTest/resources,
+                      and real images in xprs/ when present (git-ignored: they contain VINs)
 ```
 
 Value decoding follows `Variable.refreshValue()` in the app: little-endian,

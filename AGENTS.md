@@ -26,15 +26,16 @@ Java source/target is 1.8; indent with tabs; GPL v3 header on every source file.
 
 ### Offline tools
 
-`tools/calconv/` is the calibration converter: an offline Python (3.11+, standard library only) helper that compares and, later, converts `.xpr` images between firmware layouts. It reads the app's bundled DB directly. Python code uses 4-space indents and the same GPL header as a comment. The plan and its rules are in `docs/calibration-converter.md`, and usage in `tools/calconv/README.md`.
+`tools/calconv/` is the calibration converter: an offline Python (3.11+, standard library only) helper that compares and converts `.xpr` images between firmware layouts. It reads the app's bundled DB directly. Python code uses 4-space indents and the same GPL header as a comment. The plan and its rules are in `docs/calibration-converter.md`, and usage in `tools/calconv/README.md`.
 
 ```sh
 tools/calconv/test.py                              # tests (pkgx shebang; or: python3 tools/calconv/test.py)
 tools/calconv/calconv.py plan --from BUE2D --to BUEYD
 tools/calconv/calconv.py diff a.xpr b.xpr          # exit code 1 if they differ
+tools/calconv/calconv.py convert --source tune.xpr --target ecm.xpr --out result.xpr
 ```
 
-When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN). On DDFI/DDFI-2 the serial number and manufacturing date are in page 1 (offsets 9–13), so scrub those too.
+When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Real images go in the git-ignored `xprs/` folder. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN). On DDFI/DDFI-2 the serial number and manufacturing date are in page 1 (offsets 9–13), so scrub those too.
 
 ## Architecture
 

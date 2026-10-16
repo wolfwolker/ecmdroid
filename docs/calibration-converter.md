@@ -1,10 +1,12 @@
 # Calibration Converter: Development Plan
 
-> **Status (October 2026): phases 1 and 2 are implemented** in
+> **Status (October 2026): phases 1–3 are implemented** in
 > [`tools/calconv/`](../tools/calconv/README.md) (`layouts`, `plan`, `info`,
-> `diff`). There's no `convert` yet. All numbers come from the bundled database
+> `diff`, `convert` for exact matches). Rule files for renames and shape
+> changes (phase 4) are next. All numbers come from the bundled database
 > (`d00bc92f-20150424`) and the `BUE2D.eeprom` test fixture. They're produced
-> by `calconv plan`, and the tests check them.
+> by `calconv plan`, and the tests check them. The converter has also been run
+> on real BUE2D and BUEYD images (see *Validation*).
 
 ## Summary
 
@@ -70,7 +72,7 @@ a human marks them as reviewed.
 | Group | Count | Handling |
 |-------|------:|----------|
 | Shared names | 527 | Only 42 are at the same offset in both layouts. |
-| …identical definition | 517 | **Copy** 495. Exclude 20 page-0 and 2 identification variables (`CSR`, `Country_ID`). |
+| …identical definition | 517 | **Copy** 492. Exclude 20 page-0 variables, 2 identification variables (`CSR`, `Country_ID`) and 3 per-unit values (`LFuel`, `Ride_Counter`, `KTPS0`). `convert` also keeps the model-guard variable (`KEng_Ref`), so 491 are copied. |
 | …different definition | 10 | Keep the target value and flag. Details below. |
 | Only in BUE2D | 17 | **Lost:** the feature doesn't exist in BUEYD. Report the source values. |
 | Only in BUEYD | 6 | Keep the target value. |
@@ -157,11 +159,9 @@ target's values. `PC_Run_Stat` and `AMC_KO_Stat` are in page 0.
   (On DDFI and DDFI-2 the serial number is in page 1 instead, at offsets
   12–13.)
   This is a public repository.
-- **The BUEYD size question, probably settled.** ecmspy.com's list says 3250
-  bytes. The bundled database, the live ecmspy.com data and the EcmSpy for Mono
-  installer all say 3272 (3232 + a 40-byte page 0, like BUEWD and BUEZD). So
-  3250 is most likely a typo on the list. The first real BUEYD file will
-  confirm it.
+- **The BUEYD size question: settled.** Real BUEYD images read from an ECM
+  are 3272 bytes, as the database says. The 3250 on ecmspy.com's list is a
+  typo.
 - **The database inconsistencies above.** Ideally they're resolved, but the
   conversion stays safe while they aren't, because it keeps the target's
   values.
@@ -212,12 +212,13 @@ In order:
 2. **Start from the target.** Anything not copied keeps the target's value,
    including the bytes no variable describes (3% of BUEYD, 16% of BUE2D).
 3. **Never copy page 0.** It holds VIN, odometer, security PIN, manufacturing
-   data, stored trouble codes and adaptive values. On DDFI and DDFI-2 the
-   manufacturing date and serial number (`KMFG_*`) are in page 1, so excluding
-   page 0 doesn't cover them. They must be excluded by name before `convert`
-   handles those families.
-4. **Never copy identification variables:** `CSR`, `Country_ID`, `Cal_ID`,
-   `KID_*`.
+   data, stored trouble codes and adaptive values.
+4. **Never copy identification variables** (`CSR`, `Country_ID`, `Cal_ID`,
+   `KID_*`) **or per-unit values outside page 0**: the learned rear AFV
+   (`LFuel`), `Ride_Counter`, the TPS reset voltage (`KTPS0`), and the
+   manufacturing date and serial number (`KMFG_*`), which are in page 1 on
+   DDFI and DDFI-2. After burning a converted tune, reset both AFVs to 100 %,
+   because the target's learned values belong to the old maps.
 5. **Check that it's the same model.** Some variables describe the engine and
    harness, e.g. `KEng_Ref` (crankshaft or camshaft sensor, 36-2 or 32-2
    pattern). If they differ, stop: the source is probably from another model
@@ -228,9 +229,11 @@ In order:
 7. **Aliases with a different scale:** decode to physical values, convert,
    round, and check against the range (`low`/`high`). If the value is out of
    range, keep the target value and flag.
-8. **Maps and their axes form one group.** Copy a map only if its axes can be
-   copied too, and the reverse. Otherwise keep the whole group from the target
-   and flag.
+8. **Groups move together.** A map and its axes (an axis can serve several
+   maps, e.g. `Tab_Spark_RPM_Ax`), and variables that share bytes in the target
+   (e.g. `Tab_AMC_RPM` and the `KAMC_*` values), are copied together or not at
+   all. A group is also kept if its variables overlap differently in the
+   source, or if it contains a bitfield with undescribed bits.
 9. **Shape changes** only through named, built-in transforms (no free-form
    code):
    - `resample_pairs`: self-contained axis/value tables like
@@ -317,15 +320,16 @@ Usage is in [tools/calconv/README.md](../tools/calconv/README.md).
 | `calconv info FILE [--id ID]` | Detect the ID from the size. Show the calibration ID, country ID, `CSR`, serial number, manufacturing date and model-guard values. VIN and security data are hidden unless `--show-private`. | done |
 | `calconv plan --from A --to B` | Analyse two layouts without images: groups, exclusions, lost features, rename candidates, firmware-dependent meanings, model guard, database warnings, coverage | done |
 | `calconv diff F1 F2 [--id-a …] [--id-b …]` | Compare two images by variable name, also across layouts (an offline form of the planned *EEPROM compare*). For the same layout, also compare raw bytes, including bytes outside any variable. Exit code 1 if they differ. | done |
-| `calconv convert --source F --target F --out F [--from A --to B]` | Convert, and write the result and the report | phase 3 |
+| `calconv convert --source F --target F --out F [--from A --to B]` | Convert, and write the result and the report. Phase 3: exact matches only. It refuses different families, a model-guard mismatch (unless `--allow-model-mismatch`), and overwriting an input. The result is checked before it's written. | done |
 
 - **Modules:**
   - done: `db` (layouts and definitions), `image` (read, decode, ECM
-    information), `analysis` (plan), `diff`, `rules` (`common.toml`),
-    `report` (Markdown and JSON), `cli`;
-  - still to come: encoding, `match` (aliases), `convert`.
+    information), `analysis` (plan), `diff`, `convert`, `rules`
+    (`common.toml`), `report` (Markdown and JSON), `cli`;
+  - still to come: encoding (for scale changes), `match` (aliases), pair rule
+    files.
 - **Tests** (`unittest`, no extra packages; `./test.py`).
-  - Already there, 48 tests:
+  - Already there, 62 tests:
     - database access and page layout (like `TestEEPROM`);
     - decoding against the app's expectations;
     - the counts in this document;
@@ -334,14 +338,19 @@ Usage is in [tools/calconv/README.md](../tools/calconv/README.md).
     - `diff` of identical images, a changed map cell, a changed byte outside
       any variable, a one-digit change in the 8-byte VIN, an image without
       page 0, and two layouts;
-    - the command line, including exit codes.
+    - the command line, including exit codes;
+    - `convert`:
+      - BUE2D onto a generated BUEYD;
+      - only described bits are copied;
+      - page 0, identification and per-unit values are never changed;
+      - the model guard stops a conversion;
+      - different families are refused;
+      - converting an image onto itself changes nothing;
+      - BUE2D → BUEYD → BUE2D gives back every copied variable;
+    - with real images in the git-ignored `xprs/` folder, if present.
   - Still to come:
     - encoding;
-    - `resample_pairs` with known points;
-    - converting a layout onto itself only changes the non-excluded variables;
-    - BUE2D → BUEYD → BUE2D gives back the original value of every identical
-      variable;
-    - page 0 and the identification variables are never changed.
+    - `resample_pairs` with known points.
 
 ## The agent skill
 
@@ -373,10 +382,10 @@ Usage is in [tools/calconv/README.md](../tools/calconv/README.md).
 
 | Phase | Deliverable | Done when | Size | Status |
 |-------|-------------|-----------|------|--------|
-| 0 | Inputs: a BUEYD image, the model-guard list, the meaning of the fifth BUE2D PI value and of `KPIF1` | A BUE2D and a BUEYD image are available, and the open questions below have owners | S | open (Python decided; database and BUEYD size checked) |
+| 0 | Inputs: a BUEYD image, the model-guard list, the meaning of the fifth BUE2D PI value and of `KPIF1` | A BUE2D and a BUEYD image are available, and the open questions below have owners | S | images available locally; model guard and PI values still open |
 | 1 | `layouts`, `plan`: layout analysis without images | The counts in this document come out of the tool, with tests | S | **done** |
 | 2 | `info`, `diff`: read, decode and compare images | `diff` of the fixture against itself is empty; decoded values match the app | S | **done** |
-| 3 | `convert` for exact matches with all exclusions, plus the report | BUE2D → BUEYD produces a valid 3272-byte file and a complete report | M | – |
+| 3 | `convert` for exact matches with all exclusions, plus the report | BUE2D → BUEYD produces a valid 3272-byte file and a complete report | M | **done** |
 | 4 | Rule files: aliases (including per bit and one-to-many), `copy_elements`, `resample_pairs` | Reviewed rules for BUE2D → BUEYD. Candidates are listed for the other DDFI-3 pairs. | M | candidate search done (in `plan`) |
 | 5 | `SKILL.md` and the `AGENTS.md` pointer | An agent can run a whole conversion from it, and a human can follow it by hand | S | – |
 | 6 | Validation and a user how-to | The checks below pass for BUE2D → BUEYD | M | – |
@@ -396,6 +405,18 @@ Usage is in [tools/calconv/README.md](../tools/calconv/README.md).
    `Tab_Idle_Spark` matters), trouble codes, short ride with a log. Compare AFV
    and EGO correction with logs from the source setup.
 6. **Expert review:** an experienced tuner reviews the first real report.
+
+**Status (October 2026):** steps 1 and part of the tool-side checks are done.
+A real BUE2D tune (2010 XB12) was converted onto a real BUEYD image (2008),
+both read from ECMs:
+- **Counts:** 97 variables copied, 394 already equal, 10 kept for review,
+  13 lost (BUE2D-only), 30 excluded, 6 BUEYD-only.
+- **Checks:** the result passed `convert`'s own verification. An independent
+  `calconv diff` of tune vs. result shows only the excluded and kept variables
+  as different. The result still identifies as the target ECM (BUEYD, its own
+  serial number and calibration ID).
+- **Not done yet:** steps 2–6 (EcmSpy for Mono, ecmsim, burning, riding,
+  expert review).
 
 ## Risks
 
@@ -428,7 +449,14 @@ Usage is in [tools/calconv/README.md](../tools/calconv/README.md).
   ecmspy.com site, so EcmSpy for Mono shows the same thing. What's still
   missing is someone who knows what the fifth PI value and `KPIF1` control, to
   decide whether a rule can copy part of them.
-- **Learned values outside page 0.** Do pages 1…n hold adaptive values (TPS,
-  idle) that should never be copied?
+- **Learned values outside page 0.** Partly answered: `LFuel`, `Ride_Counter`,
+  `KTPS0` and (on DDFI/DDFI-2) `KMFG_*` are excluded. `KTPSAZ_Offset` (TPS
+  auto-zero offset, no description) may be learned too. It was the same (17)
+  in all three real images, so it's still copied.
+- **Undescribed calibration data.** The database doesn't describe some bytes
+  that tunes change. Right before `Tab_Spark_Front` there are 28 bytes on
+  BUEYD (two rows of 14, the timing RPM axis length) and 60 on BUE2D. A real
+  BUEYD retune changed them. `convert` keeps the target's undescribed bytes,
+  so this table isn't carried over. A TunerPro XDF for DDFI-3 may name it.
 - **Existing tools.** Does EcmSpy for Mono or TunerPro already offer something
   similar? If so, match its behaviour.

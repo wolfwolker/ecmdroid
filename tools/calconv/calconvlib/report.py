@@ -343,3 +343,117 @@ def diff(d: Diff, fmt: str, show_private: bool = False, show_all: bool = False) 
                 [e.name, _label(e.var), HIDDEN if e.private and not show_private
                  else format_values(e.var_a, e.values_a)] for e in equal])
     return "\n".join(out) + "\n"
+
+
+# --- convert ---------------------------------------------------------------
+
+def _cells(a, b) -> list[int]:
+    if a is None or b is None:
+        return []
+    return [i for i in range(max(len(a), len(b))) if i >= len(a) or i >= len(b) or a[i] != b[i]]
+
+
+def _before_after(var: VarDef, before, after) -> tuple[str, str]:
+    n = max(len(before or []), len(after or []))
+    if n <= MAX_CELLS:
+        return format_values(var, before), format_values(var, after)
+    cells = _cells(before, after)
+    shown = [f"{_cell_name(var, i)} {format_value(var, before[i], i)}→{format_value(var, after[i], i)}"
+             for i in cells[:MAX_CELLS]]
+    more = f", … ({len(cells) - MAX_CELLS} more)" if len(cells) > MAX_CELLS else ""
+    return f"{len(cells)} of {n} cells changed", "; ".join(shown) + more
+
+
+def conversion(c, out_path, fmt: str, show_all: bool = False) -> str:
+    from .analysis import coverage
+    from .convert import COPIED, EQUAL, EXCLUDED, KEPT, LOST, TARGET_ONLY
+
+    s, t = c.source, c.target
+    covered, total = coverage(t.layout)
+    order = (COPIED, EQUAL, KEPT, EXCLUDED, LOST, TARGET_ONLY)
+    counts = {k: len(c.by_action(k)) for k in order}
+    if fmt == "json":
+        return _dump({
+            "source": {"file": s.name, "ecm_id": s.ecm_id}, "target": {"file": t.name, "ecm_id": t.ecm_id},
+            "output": str(out_path), "verified": not c.problems, "problems": c.problems,
+            "model_mismatch_allowed": c.model_mismatch, "counts": counts,
+            "changed_pages": c.changed_pages,
+            "undescribed_target_bytes": total - covered,
+            "actions": [{
+                "name": a.name, "label": _label(a.var), "action": a.action, "reason": a.reason,
+                "source": a.source, "before": a.before, "after": a.after, "bits_kept": a.bits_kept,
+            } for a in c.actions.values() if show_all or a.action != EQUAL],
+        })
+
+    out = [f"# Conversion: {s.ecm_id} → {t.ecm_id}", "",
+           f"- Source (tune): `{s.name}`, {_layout_name(s.layout, s.ecm_id)}",
+           f"- Target (ECM image): `{t.name}`, {_layout_name(t.layout, t.ecm_id)}",
+           f"- Result: `{out_path}`, {len(c.result.data)} bytes, {t.ecm_id} layout", ""]
+    if c.problems:
+        out += ["> **Verification failed. Don't use the result.**", ""] + [f"- {p}" for p in c.problems] + [""]
+    else:
+        out += ["Verified: every copied variable holds the source's bytes (described bits only for "
+                "bitfields), and every other byte is the target's.", ""]
+    if c.model_mismatch:
+        out += ["> **Model guard overridden** (`--allow-model-mismatch`): "
+                + "; ".join(f"{n} source {a} / target {b}" for n, (a, b) in c.model_mismatch.items()), ""]
+    out += ["## Summary", ""]
+    out += _table(["Variables", "Count", "Meaning"], [
+        ["copied", counts[COPIED], "the result has the tune's value"],
+        ["already equal", counts[EQUAL], "copyable, and the target already had the tune's value"],
+        ["kept (review)", counts[KEPT], "shared, but the target's value is kept; see below"],
+        ["excluded", counts[EXCLUDED], "never copied: page 0, identification, per-unit values, model guard"],
+        [f"lost (only in {s.ecm_id})", counts[LOST], f"{t.ecm_id} has no such setting"],
+        [f"only in {t.ecm_id}", counts[TARGET_ONLY], "the target's value is kept"],
+    ])
+    out += ["", f"{total - covered} of the target's {total} bytes aren't described by the database and keep "
+            "the target's value. Some of them can be calibration data that a tune changes (e.g. the "
+            "undescribed rows right before `Tab_Spark_Front` on DDFI-3).", ""]
+    pages = ", ".join(f"{p}: {n}" for p, n in sorted(c.changed_pages.items())) or "none"
+    out += [f"Bytes that differ from the target, per page: {pages}.", ""]
+
+    kept = c.by_action(KEPT)
+    if kept:
+        out += ["## Kept: needs review", "",
+                "The target's value is kept. Decide each one: leave it, or set it by hand after burning.", ""]
+        rows = []
+        for a in kept:
+            rows.append([a.name, _label(a.var), a.reason, format_values(a.var_s, a.source),
+                         format_values(a.var_t, a.before)])
+        out += _table(["Variable", "Label", "Why", "Tune (source)", "Kept (target)"], rows) + [""]
+    bits = [a for a in c.actions.values() if a.bits_kept]
+    if bits:
+        out += ["## Bitfields: undescribed bits kept", "",
+                "Only described bits were copied. These undescribed bits differ, and the target's bits were kept.",
+                ""]
+        out += _table(["Variable", "Label", "Bits", "Tune", "Result"],
+                      [[a.name, _label(a.var), ", ".join(map(str, a.bits_kept)),
+                        format_values(a.var_s, a.source), format_values(a.var_t, a.after)] for a in bits]) + [""]
+    lost = c.by_action(LOST)
+    if lost:
+        out += [f"## Lost: settings {t.ecm_id} doesn't have", "",
+                "The tune's values for these can't be carried over. Check whether the tune relies on them.", ""]
+        out += _table(["Variable", "Label", "Tune's value"],
+                      [[a.name, _label(a.var), format_values(a.var_s, a.source)] for a in lost]) + [""]
+    copied = c.by_action(COPIED)
+    if copied:
+        out += ["## Copied", ""]
+        rows = []
+        for a in copied:
+            before, after = _before_after(a.var_t, a.before, a.after)
+            rows.append([a.name, _label(a.var), before, after])
+        out += _table(["Variable", "Label", "Target before", "Result"], rows) + [""]
+    if show_all:
+        for action, title in ((EQUAL, "Already equal"), (EXCLUDED, "Excluded"), (TARGET_ONLY, f"Only in {t.ecm_id}")):
+            rows = [[a.name, _label(a.var), a.reason or "", format_values(a.var_t, a.before)]
+                    for a in c.by_action(action)]
+            if rows:
+                out += [f"## {title}", ""] + _table(["Variable", "Label", "Reason", "Target value"], rows) + [""]
+    out += ["## Next steps", "",
+            "1. Keep the target image unchanged as a backup.",
+            f"2. Load `{out_path}` in EcmDroid (EEPROM → Load) or EcmSpy for Mono, review it, and burn it.",
+            f"3. Fetch again, save, and check with `calconv diff {out_path} <fetched.xpr>`: pages 1…n must be equal.",
+            "4. Reset both AFVs to 100 % (Setup → AFV Settings): the target's learned AFVs were kept, "
+            "but they were learned with the old maps.",
+            "5. Start, idle cold and warm, check trouble codes, then a short ride with a log (AFV, EGO correction)."]
+    return "\n".join(out) + "\n"
