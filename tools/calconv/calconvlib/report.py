@@ -17,12 +17,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from .analysis import Plan
 from .db import Database, Layout, VarDef
 from .diff import CHANGED, EQUAL, MISSING_A, MISSING_B, ONLY_A, ONLY_B, Diff, Entry
 from .image import Image, ecm_info, format_value, format_values
-from .rules import CommonRules
+from .rules import CommonRules, PairRules, Rule
 
 HIDDEN = "(hidden, use --show-private)"
 MAX_CELLS = 8  # list at most this many differing cells of a table or map
@@ -87,9 +88,25 @@ def layouts(db: Database, fmt: str) -> str:
     return "\n".join(out) + "\n"
 
 
+def _path(path) -> str:
+    """A path relative to the working directory when it's below it."""
+    try:
+        return str(Path(path).resolve().relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+def _rule_json(r: Rule) -> dict:
+    return {"entry": r.where, "rule": r.describe(), "status": r.status, "why": r.why, "reviewed_by": r.reviewed_by}
+
+
+def _rule_rows(rules: list[Rule]) -> list[list]:
+    return [[r.describe(), r.status + (f" ({r.reviewed_by})" if r.reviewed_by else ""), r.why] for r in rules]
+
+
 # --- plan ------------------------------------------------------------------
 
-def plan(p: Plan, fmt: str, show_all: bool = False) -> str:
+def plan(p: Plan, fmt: str, show_all: bool = False, pair: PairRules | None = None) -> str:
     excluded_by = {}
     for reason in p.excluded.values():
         excluded_by[reason] = excluded_by.get(reason, 0) + 1
@@ -121,6 +138,8 @@ def plan(p: Plan, fmt: str, show_all: bool = False) -> str:
             "model_guard": p.model_guard,
             "database_warnings": p.warnings,
             "coverage": {k: {"covered": c, "total": t} for k, (c, t) in p.coverage.items()},
+            "rule_file": None if pair is None else {"file": _path(pair.path),
+                                                    "entries": [_rule_json(r) for r in pair.rules]},
         })
 
     s, d = p.src_id, p.dst_id
@@ -151,7 +170,15 @@ def plan(p: Plan, fmt: str, show_all: bool = False) -> str:
         ["Bytes described by variables", "", cov + ". The rest keeps the target's value."],
     ])
 
-    out += ["", "## Needs attention", ""]
+    out += [""]
+    if pair is None:
+        out += [f"Rule file: none for {s} → {d}. `calconv draft-rules --from {s} --to {d}` drafts one.", ""]
+    else:
+        reviewed = sum(1 for r in pair.rules if r.reviewed)
+        out += ["## Rule file", "", f"`{_path(pair.path)}`: {len(pair.rules)} entries, {reviewed} reviewed. "
+                "`convert` applies the reviewed ones; the others only with `--allow-proposed`.", ""]
+        out += _table(["Rule", "Status", "Reason / evidence"], _rule_rows(pair.rules)) + [""]
+    out += ["## Needs attention", ""]
     if p.semantic:
         out += ["### Meaning may depend on the firmware", "",
                 "The database description mentions firmware versions. Don't copy these by name "
@@ -255,6 +282,72 @@ def info(db: Database, img: Image, rules: CommonRules, show_private: bool, fmt: 
         out += ["", "## Private data", ""]
         out += _table(["Variable", "Value"], [[n, v] for n, v in priv.items()])
     return "\n".join(out) + "\n"
+
+
+# --- show ------------------------------------------------------------------
+
+def _definition(var: VarDef) -> str:
+    parts = [var.type, f"offset {var.offset}" + (" (page 0)" if var.in_page0 else ""), f"{var.size} bytes"]
+    if var.count > 1:
+        parts.append(f"{var.count} elements of {var.width} byte(s)")
+    if var.type in ("Table", "Map") and var.cols and var.rows:
+        parts.append(f"{var.cols}×{var.rows}" + (f", skip {var.skip}" if var.type == "Map" and var.skip else ""))
+    if var.type not in ("Bits", "String"):
+        parts.append(f"scale {var.scale or 1.0:g}, translate {var.translate or 0.0:g}")
+    if var.type == "Table":
+        parts.append(f"axis scale {var.axisscale or 1.0:g}, translate {var.axistranslate or 0.0:g}")
+    if var.xaxis or var.yaxis:
+        parts.append(f"axes {var.xaxis or '–'} / {var.yaxis or '–'}")
+    if var.units:
+        parts.append(f"units {var.units}")
+    return "; ".join(parts)
+
+
+def show(db: Database, names: list[str], ids: list[str], images: list[Image], rules: CommonRules,
+         show_private: bool, fmt: str) -> str:
+    """Definitions and database texts of variables in several layouts, and
+    their values in images: the material for deciding a rule."""
+    data = []
+    for name in names:
+        entry = {"name": name, "layouts": [], "images": []}
+        for ecm_id in ids:
+            var = db.layout(ecm_id).vars.get(name)
+            entry["layouts"].append({"id": ecm_id, "defined": var is not None} if var is None else {
+                "id": ecm_id, "defined": True, "definition": _definition(var), "label": var.label,
+                "remark": var.remark, "description": var.description,
+                "bits": db.bit_labels(name) if var.type == "Bits" else None})
+        for img in images:
+            var = img.var(name)
+            if var is None or not img.available(var):
+                value = None
+            elif name in rules.private and not show_private:
+                value = HIDDEN
+            else:
+                value = format_values(var, img.physical(var))
+            entry["images"].append({"file": img.name, "id": img.ecm_id, "value": value})
+        data.append(entry)
+    if fmt == "json":
+        return _dump(data)
+    out = []
+    for entry in data:
+        out += [f"# {entry['name']}", ""]
+        for lay in entry["layouts"]:
+            if not lay["defined"]:
+                out += [f"- **{lay['id']}**: not defined", ""]
+                continue
+            out += [f"- **{lay['id']}**: {lay['definition']}"]
+            for key in ("label", "remark", "description"):
+                if lay[key]:
+                    text = " ".join(lay[key].split())
+                    out += [f"  - {key}: {text}"]
+            if lay["bits"]:
+                out += ["  - bits: " + "; ".join(f"{i + 1}: {b or '–'}" for i, b in enumerate(lay["bits"]))]
+            out += [""]
+        if entry["images"]:
+            out += _table(["Image", "ID", "Value"],
+                          [[i["file"], i["id"], i["value"] if i["value"] is not None else "–"]
+                           for i in entry["images"]]) + [""]
+    return "\n".join(out).rstrip() + "\n"
 
 
 # --- diff ------------------------------------------------------------------
@@ -364,9 +457,23 @@ def _before_after(var: VarDef, before, after) -> tuple[str, str]:
     return f"{len(cells)} of {n} cells changed", "; ".join(shown) + more
 
 
-def conversion(c, out_path, fmt: str, show_all: bool = False) -> str:
+def _vals(a, var: VarDef | None, values) -> str:
+    if a.bit is not None:
+        return "–" if not values else f"bit {values[0]}"
+    return format_values(var, values) if var is not None else "–"
+
+
+def conversion(c, out_path, fmt: str, show_all: bool = False, private: tuple[str, ...] = ()) -> str:
+    hidden = set(private)
+
+    def vals(a, var, values) -> str:
+        return HIDDEN if a.name in hidden else _vals(a, var, values)
+
+    def raw(a, values):
+        return HIDDEN if a.name in hidden else values
+
     from .analysis import coverage
-    from .convert import COPIED, EQUAL, EXCLUDED, KEPT, LOST, TARGET_ONLY
+    from .convert import BIT, COPIED, EQUAL, EXCLUDED, KEPT, LOST, TARGET_ONLY
 
     s, t = c.source, c.target
     covered, total = coverage(t.layout)
@@ -379,21 +486,37 @@ def conversion(c, out_path, fmt: str, show_all: bool = False) -> str:
             "model_mismatch_allowed": c.model_mismatch, "counts": counts,
             "changed_pages": c.changed_pages,
             "undescribed_target_bytes": total - covered,
+            "rule_file": None if c.pair is None else {
+                "file": _path(c.pair.path), "allow_proposed": c.allow_proposed,
+                "applied": [_rule_json(r) for r in c.applied], "pending": [_rule_json(r) for r in c.pending],
+                "skipped": [dict(_rule_json(r), skipped=why) for r, why in c.skipped]},
             "actions": [{
                 "name": a.name, "label": _label(a.var), "action": a.action, "reason": a.reason,
-                "source": a.source, "before": a.before, "after": a.after, "bits_kept": a.bits_kept,
+                "source_name": a.source_name, "how": a.how, "rule": a.rule.where if a.rule else None,
+                "source": raw(a, a.source), "before": raw(a, a.before), "after": raw(a, a.after),
+                "bits_kept": a.bits_kept,
             } for a in c.actions.values() if show_all or a.action != EQUAL],
         })
 
     out = [f"# Conversion: {s.ecm_id} → {t.ecm_id}", "",
            f"- Source (tune): `{s.name}`, {_layout_name(s.layout, s.ecm_id)}",
            f"- Target (ECM image): `{t.name}`, {_layout_name(t.layout, t.ecm_id)}",
-           f"- Result: `{out_path}`, {len(c.result.data)} bytes, {t.ecm_id} layout", ""]
+           f"- Result: `{out_path}`, {len(c.result.data)} bytes, {t.ecm_id} layout"]
+    if c.pair is None:
+        out += [f"- Rules: no rule file for {s.ecm_id} → {t.ecm_id}, exact matches only"]
+    else:
+        out += [f"- Rules: `{_path(c.pair.path)}`, {len(c.applied)} applied, {len(c.pending)} proposed and not applied"]
+    out += [""]
+    unreviewed = [r for r in c.applied if not r.reviewed]
+    if unreviewed:
+        out += [f"> **Unreviewed rules applied (`--allow-proposed`): {len(unreviewed)}.** Check them below "
+                "before using the result.", ""]
     if c.problems:
         out += ["> **Verification failed. Don't use the result.**", ""] + [f"- {p}" for p in c.problems] + [""]
     else:
-        out += ["Verified: every copied variable holds the source's bytes (described bits only for "
-                "bitfields), and every other byte is the target's.", ""]
+        out += ["Verified: every copied variable holds the source's value as its rule says (raw bytes, "
+                "described bits only for bitfields, or the converted, element-wise or resampled values), "
+                "and every other bit is the target's.", ""]
     if c.model_mismatch:
         out += ["> **Model guard overridden** (`--allow-model-mismatch`): "
                 + "; ".join(f"{n} source {a} / target {b}" for n, (a, b) in c.model_mismatch.items()), ""]
@@ -402,7 +525,8 @@ def conversion(c, out_path, fmt: str, show_all: bool = False) -> str:
         ["copied", counts[COPIED], "the result has the tune's value"],
         ["already equal", counts[EQUAL], "copyable, and the target already had the tune's value"],
         ["kept (review)", counts[KEPT], "shared, but the target's value is kept; see below"],
-        ["excluded", counts[EXCLUDED], "never copied: page 0, identification, per-unit values, model guard"],
+        ["excluded", counts[EXCLUDED], "never copied: page 0, identification, per-unit values, model guard, "
+                                       "rule-file exclusions"],
         [f"lost (only in {s.ecm_id})", counts[LOST], f"{t.ecm_id} has no such setting"],
         [f"only in {t.ecm_id}", counts[TARGET_ONLY], "the target's value is kept"],
     ])
@@ -418,9 +542,15 @@ def conversion(c, out_path, fmt: str, show_all: bool = False) -> str:
                 "The target's value is kept. Decide each one: leave it, or set it by hand after burning.", ""]
         rows = []
         for a in kept:
-            rows.append([a.name, _label(a.var), a.reason, format_values(a.var_s, a.source),
-                         format_values(a.var_t, a.before)])
+            rows.append([a.name, _label(a.var), a.reason, vals(a, a.var_s, a.source), vals(a, a.var_t, a.before)])
         out += _table(["Variable", "Label", "Why", "Tune (source)", "Kept (target)"], rows) + [""]
+    by_rule = [a for a in c.by_action(EXCLUDED) if a.rule is not None]
+    if by_rule:
+        out += ["## Excluded by the rule file", "",
+                "The target's value is kept on purpose. Check whether to set it by hand.", ""]
+        out += _table(["Variable", "Label", "Why", "Tune (source)", "Kept (target)"],
+                      [[a.name, _label(a.var), a.rule.why, vals(a, a.var_s, a.source), vals(a, a.var_t, a.before)]
+                       for a in by_rule]) + [""]
     bits = [a for a in c.actions.values() if a.bits_kept]
     if bits:
         out += ["## Bitfields: undescribed bits kept", "",
@@ -434,18 +564,33 @@ def conversion(c, out_path, fmt: str, show_all: bool = False) -> str:
         out += [f"## Lost: settings {t.ecm_id} doesn't have", "",
                 "The tune's values for these can't be carried over. Check whether the tune relies on them.", ""]
         out += _table(["Variable", "Label", "Tune's value"],
-                      [[a.name, _label(a.var), format_values(a.var_s, a.source)] for a in lost]) + [""]
+                      [[a.name, _label(a.var), vals(a, a.var_s, a.source)] for a in lost]) + [""]
     copied = c.by_action(COPIED)
     if copied:
         out += ["## Copied", ""]
         rows = []
         for a in copied:
-            before, after = _before_after(a.var_t, a.before, a.after)
-            rows.append([a.name, _label(a.var), before, after])
-        out += _table(["Variable", "Label", "Target before", "Result"], rows) + [""]
+            if a.how == BIT:
+                before, after = vals(a, a.var_t, a.before), vals(a, a.var_t, a.after)
+            elif a.name in hidden:
+                before = after = HIDDEN
+            else:
+                before, after = _before_after(a.var_t, a.before, a.after)
+            rows.append([a.name, _label(a.var), a.reason, before, after])
+        out += _table(["Variable", "Label", "How", "Target before", "Result"], rows) + [""]
+    if c.pair is not None and (c.applied or c.pending or c.skipped):
+        out += ["## Rules", ""]
+        if c.applied:
+            out += ["Applied:", ""] + _table(["Rule", "Status", "Reason / evidence"], _rule_rows(c.applied)) + [""]
+        if c.pending:
+            out += ["Proposed, not applied (review them, or use `--allow-proposed` to try them):", ""]
+            out += _table(["Rule", "Status", "Reason / evidence"], _rule_rows(c.pending)) + [""]
+        if c.skipped:
+            out += ["Overruled:", ""]
+            out += _table(["Rule", "Why"], [[r.describe(), why] for r, why in c.skipped]) + [""]
     if show_all:
         for action, title in ((EQUAL, "Already equal"), (EXCLUDED, "Excluded"), (TARGET_ONLY, f"Only in {t.ecm_id}")):
-            rows = [[a.name, _label(a.var), a.reason or "", format_values(a.var_t, a.before)]
+            rows = [[a.name, _label(a.var), a.reason or "", vals(a, a.var_t, a.before)]
                     for a in c.by_action(action)]
             if rows:
                 out += [f"## {title}", ""] + _table(["Variable", "Label", "Reason", "Target value"], rows) + [""]

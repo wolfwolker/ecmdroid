@@ -26,16 +26,18 @@ Java source/target is 1.8; indent with tabs; GPL v3 header on every source file.
 
 ### Offline tools
 
-`tools/calconv/` is the calibration converter: an offline Python (3.11+, standard library only) helper that compares and converts `.xpr` images between firmware layouts. It reads the app's bundled DB directly. Python code uses 4-space indents and the same GPL header as a comment. The plan and its rules are in `docs/calibration-converter.md`, and usage in `tools/calconv/README.md`.
+`tools/calconv/` is the calibration converter: an offline Python (3.11+, standard library only) helper that compares and converts `.xpr` images between firmware layouts. It reads the app's bundled DB directly. Python code uses 4-space indents and the same GPL header as a comment. The plan and its rules are in `docs/calibration-converter.md`, and usage in `tools/calconv/README.md`. **To run a conversion for someone, follow [`tools/calconv/SKILL.md`](tools/calconv/SKILL.md)**: it's the procedure and its guardrails (never mark a rule `reviewed` without the person's confirmation, never burn).
 
 ```sh
 tools/calconv/test.py                              # tests (pkgx shebang; or: python3 tools/calconv/test.py)
 tools/calconv/calconv.py plan --from BUE2D --to BUEYD
 tools/calconv/calconv.py diff a.xpr b.xpr          # exit code 1 if they differ
 tools/calconv/calconv.py convert --source tune.xpr --target ecm.xpr --out result.xpr
+tools/calconv/calconv.py show Tab_PRF --id BUE2D --id BUEYD   # definitions and DB texts
+tools/calconv/calconv.py draft-rules --from BUEIB --to BUECB  # proposed rule file
 ```
 
-When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Real images go in the git-ignored `xprs/` folder. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN). On DDFI/DDFI-2 the serial number and manufacturing date are in page 1 (offsets 9–13), so scrub those too.
+Rule files per direction live in `tools/calconv/rules/` (`<FROM>-<TO>.toml`); only entries with `status = "reviewed"` are applied. When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Real images go in the git-ignored `xprs/` folder. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN). On DDFI/DDFI-2 the serial number and manufacturing date are in page 1 (offsets 9–13), so scrub those too.
 
 ## Architecture
 

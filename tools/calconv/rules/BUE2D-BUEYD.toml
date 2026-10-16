@@ -1,0 +1,103 @@
+# Rules for converting a BUE2D (or B3R2D) tune onto a BUEYD ECM.
+# See docs/calibration-converter.md, "Rule files".
+#
+# Entries take effect only with status = "reviewed" (and reviewed_by), or
+# with `calconv convert --allow-proposed`, which the report then says.
+# Exclusions win over everything else.
+
+[pair]
+from = "BUE2D"
+to = "BUEYD"
+
+# --- Kept: same name, different meaning -------------------------------------
+
+[[exclude]]
+var = "Tab_Idle_Spark"
+reason = """BUE2D can use it as the absolute idle advance instead of the timing \
+tables (KSpark_Config bit 1, set in the app's BUE2D test image and in a real 2010 XB12 \
+tune), while BUEYD adds it to the timing tables. The shape also differs (6 \
+temperature/advance pairs on BUE2D, 4 on BUEYD). Set the BUEYD idle advance by hand."""
+status = "proposed"
+
+[[exclude]]
+var = "KPIF1"
+reason = """4 bytes on BUE2D (2, 40, 0, 0 in every BUE2D image seen), 6 bytes on \
+BUEYD (all 0 in the BUEYD images seen). No description; meaning unknown."""
+status = "proposed"
+
+# --- PI controller arrays -----------------------------------------------------
+# BUE2D has 5 values per array, BUEYD 4. Evidence that BUE2D's extra value is
+# the FIRST one, so BUE2D elements 2-5 are BUEYD elements 1-4:
+# - In the app's BUE2D test image, elements 2-5 of all four front arrays equal
+#   the four values of the BUEYD images exactly (Tab_PRF 1.0 1.0 1.0 1.0,
+#   Tab_IRF 0.5 0.3 0.3 0.3, Tab_PLF 1.0 1.0 1.0 1.0, Tab_ILF 0.5 0.3 0.3 0.3).
+# - The first element is the same in every BUE2D image seen, tuned or not
+#   (PRF/IRF/PLF/ILF 10.0, 1.0, 0.3, 1.0; PRR/IRR/PLR/ILR 0.3, 1.0, 0.3, 1.0),
+#   while tunes change elements 2-5.
+# The database describes four operating ranges for every layout, e.g. Tab_PRF:
+# "Proportional values for the front cylinder and rich transition (idle, low,
+# mid, high)". Open: what the extra BUE2D value controls.
+
+[[transform]]
+var = "Tab_PRF"
+kind = "copy_elements"
+source_start = 1
+count = 4
+evidence = "BUE2D elements 2-5 = BUEYD elements 1-4 (test images; see above)"
+status = "proposed"
+
+[[transform]]
+var = "Tab_IRF"
+kind = "copy_elements"
+source_start = 1
+count = 4
+evidence = "BUE2D elements 2-5 = BUEYD elements 1-4 (test images; see above)"
+status = "proposed"
+
+[[transform]]
+var = "Tab_PLF"
+kind = "copy_elements"
+source_start = 1
+count = 4
+evidence = "BUE2D elements 2-5 = BUEYD elements 1-4 (test images; see above)"
+status = "proposed"
+
+[[transform]]
+var = "Tab_ILF"
+kind = "copy_elements"
+source_start = 1
+count = 4
+evidence = "BUE2D elements 2-5 = BUEYD elements 1-4 (test images; see above)"
+status = "proposed"
+
+[[transform]]
+var = "Tab_PRR"
+kind = "copy_elements"
+source_start = 1
+count = 4
+evidence = "same layout as the front arrays (Tab_PRF ...); the first element is untouched by tunes"
+status = "proposed"
+
+[[transform]]
+var = "Tab_IRR"
+kind = "copy_elements"
+source_start = 1
+count = 4
+evidence = "same layout as the front arrays (Tab_PRF ...); the first element is untouched by tunes"
+status = "proposed"
+
+[[transform]]
+var = "Tab_PLR"
+kind = "copy_elements"
+source_start = 1
+count = 4
+evidence = "same layout as the front arrays (Tab_PRF ...); the first element is untouched by tunes"
+status = "proposed"
+
+[[transform]]
+var = "Tab_ILR"
+kind = "copy_elements"
+source_start = 1
+count = 4
+evidence = "same layout as the front arrays (Tab_PRF ...); the first element is untouched by tunes"
+status = "proposed"

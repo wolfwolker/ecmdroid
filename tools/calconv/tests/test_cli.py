@@ -20,6 +20,7 @@ import unittest
 from pathlib import Path
 
 from calconvlib.cli import EXIT_DIFFERENT, EXIT_ERROR, EXIT_OK, main
+from calconvlib.rules import RULES_DIR as RULES
 
 from .support import BUE2D_IMAGE, BUEIB_IMAGE
 
@@ -82,6 +83,68 @@ class TestCommands(unittest.TestCase):
             code, _, _ = run("diff", BUE2D_IMAGE, changed, "--format", "json", "-o", report)
             self.assertEqual(EXIT_DIFFERENT, code)
             self.assertFalse(json.loads(report.read_text())["identical"])
+
+    def test_plan_shows_the_rule_file(self):
+        code, out, _ = run("plan", "--from", "BUE2D", "--to", "BUEYD")
+        self.assertIn("## Rule file", out)
+        self.assertIn("copy_elements Tab_PRF", out)
+        code, out, _ = run("plan", "--from", "BUE2D", "--to", "BUEYD", "--no-pair-rules")
+        self.assertNotIn("## Rule file", out)
+
+    def test_convert_with_rules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target.xpr"
+            target.write_bytes(BUE2D_IMAGE.read_bytes())
+            out = Path(tmp) / "out.xpr"
+            code, text, _ = run("convert", "--source", BUE2D_IMAGE, "--target", target, "--out", out,
+                                "--pair-rules", RULES / "BUE2D-BUEYD.toml")
+            self.assertEqual(EXIT_ERROR, code)  # BUE2D onto BUE2D: the rules are for BUEYD
+            code, text, err = run("convert", "--source", BUE2D_IMAGE, "--target", target, "--out", out,
+                                  "--allow-proposed", "--format", "json")
+            self.assertEqual(EXIT_OK, code, err)
+            self.assertIsNone(json.loads(text)["rule_file"])  # no BUE2D-BUE2D.toml
+
+    def test_convert_report_hides_private_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target.xpr"
+            data = bytearray(BUE2D_IMAGE.read_bytes())
+            data[-30] ^= 0x01  # page 0 differs, so the VIN is listed
+            target.write_bytes(data)
+            out = Path(tmp) / "out.xpr"
+            code, text, err = run("convert", "--source", BUE2D_IMAGE, "--target", target, "--out", out,
+                                  "--format", "json", "--all")
+            self.assertEqual(EXIT_OK, code, err)
+            kvin = [a for a in json.loads(text)["actions"] if a["name"] == "KVIN"][0]
+            self.assertEqual("(hidden, use --show-private)", kvin["before"])
+            code, text, err = run("convert", "--source", BUE2D_IMAGE, "--target", target, "--out", out,
+                                  "--force", "--all")
+            self.assertEqual(EXIT_OK, code, err)
+            self.assertIn("Verified:", text)
+            self.assertIn("| KVIN |  | page 0 | (hidden, use --show-private) |", text)
+
+    def test_show(self):
+        code, out, _ = run("show", "Tab_PRF", "KVIN", "--id", "BUEYD", "--image", BUE2D_IMAGE)
+        self.assertEqual(EXIT_OK, code)
+        self.assertIn("- **BUEYD**: Array; offset 450; 4 bytes", out)
+        self.assertIn("rich transition (idle, low, mid, high)", out)
+        self.assertIn("| BUE2D | 10.0, 1.0, 1.0, 1.0, 1.0 |", out)
+        self.assertIn("(hidden, use --show-private)", out)
+        code, out, _ = run("show", "KVIN", "--image", f"{BUEIB_IMAGE}@BUEIB")
+        self.assertEqual(EXIT_OK, code)
+        code, _, err = run("show", "KVIN")
+        self.assertEqual(EXIT_ERROR, code)
+
+    def test_draft_rules(self):
+        code, out, _ = run("draft-rules", "--from", "BUEIB", "--to", "BUECB")
+        self.assertEqual(EXIT_OK, code)
+        self.assertIn('[pair]\nfrom = "BUEIB"\nto = "BUECB"', out)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "BUEIB-BUECB.toml"
+            path.write_text("keep")
+            code, _, err = run("draft-rules", "--from", "BUEIB", "--to", "BUECB", "-o", path)
+            self.assertEqual(EXIT_ERROR, code)
+            self.assertIn("--force", err)
+            self.assertEqual("keep", path.read_text())
 
     def test_unknown_id(self):
         code, _, err = run("plan", "--from", "BUE2D", "--to", "NOPE")

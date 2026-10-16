@@ -150,6 +150,26 @@ class TestRealImages(unittest.TestCase):
             self.assertEqual([], c.problems, path.name)
             self.assertEqual(target.data[target.layout.size:], c.result.data[target.layout.size:], path.name)
 
+    def test_independent_cross_check(self):
+        # diff (a separate code path) must agree: every variable copied as raw
+        # bytes is equal in the tune and the result, with and without the
+        # proposed rules.
+        from calconvlib.convert import RAW
+        from calconvlib.rules import RULES_DIR, load_pair
+
+        source = load_image(db(), sorted(XPRS.glob("BUE2D*.xpr"))[0])
+        target = load_image(db(), sorted(XPRS.glob("BUEYD*.xpr"))[-1])
+        pair = load_pair(RULES_DIR / "BUE2D-BUEYD.toml")
+        for allow in (False, True):
+            try:
+                c = convert(db(), source, target, rules(), pair, allow_proposed=allow)
+            except ConversionError as e:
+                self.skipTest(str(e))
+            status = {e.name: e.status for e in diff_images(source, c.result).entries}
+            for a in c.actions.values():
+                if a.action in (COPIED, EQUAL) and a.how == RAW and a.var_t.type != "Bits":
+                    self.assertEqual("equal", status[a.name], f"{a.name} (allow_proposed={allow})")
+
 
 if __name__ == "__main__":
     unittest.main()

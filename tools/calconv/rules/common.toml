@@ -1,5 +1,5 @@
 # Rules for every conversion, whatever the source and target layout.
-# Rules for one direction (e.g. BUE2D-BUEYD.toml) come in phase 4.
+# Rules for one direction are in <FROM>-<TO>.toml (e.g. BUE2D-BUEYD.toml).
 # See docs/calibration-converter.md.
 
 [exclude]

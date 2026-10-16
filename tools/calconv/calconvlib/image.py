@@ -124,20 +124,38 @@ def physical_values(var: VarDef, raw: bytes) -> list:
         return app_values(var, raw)
     out = []
     for i, v in enumerate(_ints(var, raw)):
-        if var.type == "Table" and i % 2 == 0:
-            scale, translate = var.axisscale, var.axistranslate
-        else:
-            scale, translate = var.scale, var.translate
-        if scale in (None, 0.0, 1.0) and not translate:
+        scale, translate = element_scale(var, i)
+        if scale == 1.0 and not translate:
             out.append(v)  # exact, also for 8-byte values such as KVIN
         else:
-            out.append(v * (scale or 1.0) + (translate or 0.0))
+            out.append(v * scale + translate)
     return out
 
 
 def element_ints(var: VarDef, raw: bytes) -> list[int]:
     """The raw (unscaled) elements of a variable."""
     return _ints(var, raw)
+
+
+def element_scale(var: VarDef, index: int) -> tuple[float, float]:
+    """Scale and translate of one element (the axis half of tables differs)."""
+    if var.type == "Table" and index % 2 == 0:
+        scale, translate = var.axisscale, var.axistranslate
+    else:
+        scale, translate = var.scale, var.translate
+    return scale or 1.0, translate or 0.0
+
+
+def encode_element(var: VarDef, index: int, value: float) -> int | None:
+    """The raw integer closest to a physical value, or None if it doesn't fit
+    the element width (values are unsigned, as in the app)."""
+    scale, translate = element_scale(var, index)
+    raw = round((value - translate) / scale)
+    return raw if 0 <= raw < 1 << (8 * var.width) else None
+
+
+def pack_ints(var: VarDef, ints: list[int]) -> bytes:
+    return b"".join(i.to_bytes(var.width, "little") for i in ints)
 
 
 def decimals(fmt: str | None) -> int:
