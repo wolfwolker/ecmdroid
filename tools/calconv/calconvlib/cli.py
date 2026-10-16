@@ -191,4 +191,6 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_ERROR
     else:
         sys.stdout.write(text)
+    if args.command == "convert" and code == EXIT_OK:
+        print(report.TESTING_NOTE, file=sys.stderr)
     return code

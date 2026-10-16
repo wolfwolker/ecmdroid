@@ -26,6 +26,9 @@ from .image import Image, ecm_info, format_value, format_values
 from .rules import CommonRules, PairRules, Rule
 
 HIDDEN = "(hidden, use --show-private)"
+# Shown on every conversion until a converted image has been burned and ridden.
+TESTING_NOTE = ("calconv is in testing: no converted image has been burned and ridden yet. "
+                "Don't burn the result on an ECM that runs a motorcycle.")
 MAX_CELLS = 8  # list at most this many differing cells of a table or map
 
 
@@ -481,6 +484,7 @@ def conversion(c, out_path, fmt: str, show_all: bool = False, private: tuple[str
     counts = {k: len(c.by_action(k)) for k in order}
     if fmt == "json":
         return _dump({
+            "testing_note": TESTING_NOTE,
             "source": {"file": s.name, "ecm_id": s.ecm_id}, "target": {"file": t.name, "ecm_id": t.ecm_id},
             "output": str(out_path), "verified": not c.problems, "problems": c.problems,
             "model_mismatch_allowed": c.model_mismatch, "counts": counts,
@@ -498,7 +502,7 @@ def conversion(c, out_path, fmt: str, show_all: bool = False, private: tuple[str
             } for a in c.actions.values() if show_all or a.action != EQUAL],
         })
 
-    out = [f"# Conversion: {s.ecm_id} → {t.ecm_id}", "",
+    out = [f"# Conversion: {s.ecm_id} → {t.ecm_id}", "", f"> **{TESTING_NOTE}**", "",
            f"- Source (tune): `{s.name}`, {_layout_name(s.layout, s.ecm_id)}",
            f"- Target (ECM image): `{t.name}`, {_layout_name(t.layout, t.ecm_id)}",
            f"- Result: `{out_path}`, {len(c.result.data)} bytes, {t.ecm_id} layout"]
@@ -596,9 +600,10 @@ def conversion(c, out_path, fmt: str, show_all: bool = False, private: tuple[str
                 out += [f"## {title}", ""] + _table(["Variable", "Label", "Reason", "Target value"], rows) + [""]
     out += ["## Next steps", "",
             "1. Keep the target image unchanged as a backup.",
-            f"2. Load `{out_path}` in EcmDroid (EEPROM → Load) or EcmSpy for Mono, review it, and burn it.",
-            f"3. Fetch again, save, and check with `calconv diff {out_path} <fetched.xpr>`: pages 1…n must be equal.",
-            "4. Reset both AFVs to 100 % (Setup → AFV Settings): the target's learned AFVs were kept, "
-            "but they were learned with the old maps.",
-            "5. Start, idle cold and warm, check trouble codes, then a short ride with a log (AFV, EGO correction)."]
+            f"2. Compare `{out_path}` with the tune in EcmSpy for Mono or TunerPro: the maps, the limits, "
+            "and the items listed above.",
+            "3. Report what you find: see *Beta testing* in docs/calibration-converter-howto.md.",
+            "",
+            "Don't burn it yet. Burning and checking a burned result are in the same how-to, for when "
+            "calconv has been validated on a bike."]
     return "\n".join(out) + "\n"

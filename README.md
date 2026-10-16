@@ -70,6 +70,15 @@ details.
 |                                             | [Live data & logging](docs/logging.md)      |
 |                                             | [Development guide](docs/development.md)    |
 
+### Calibration converter (in testing)
+
+[`tools/calconv`](tools/calconv/README.md) is an offline PC tool that carries a
+tune from one ECM firmware ID to another, e.g. a BUE2D tune onto a BUEYD ECM.
+**It's in testing: don't burn its results on an ECM that runs a motorcycle
+yet.** Riders start with the
+[how-to](docs/calibration-converter-howto.md), developers with the
+[plan and rules](docs/calibration-converter.md).
+
 ## Building
 
 ```sh

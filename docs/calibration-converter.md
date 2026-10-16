@@ -9,6 +9,10 @@
 > (`d00bc92f-20150424`) and the `BUE2D.eeprom` test fixture. They're produced
 > by `calconv plan`, and the tests check them. The converter has also been run
 > on real BUE2D and BUEYD images (see *Validation*).
+>
+> **It's in testing: don't burn a converted image on an ECM that runs a
+> motorcycle yet.** Beta testers start with the
+> [how-to](calibration-converter-howto.md#beta-testing).
 
 ## Summary
 
@@ -411,8 +415,10 @@ Usage is in [tools/calconv/README.md](../tools/calconv/README.md).
      `status = "proposed"` and the evidence.
   4. Run `calconv convert` and summarise the report: risky items first, then
      lost features, then counts.
-  5. Explain the next steps: backup, load and burn in EcmDroid or EcmSpy for
-     Mono, verify with `calconv diff`, then the test ride.
+  5. Explain the next steps: backup, then compare the result with the tune.
+     While calconv is in testing, no burning; after validation: load and burn
+     in EcmDroid or EcmSpy for Mono, verify with `calconv diff`, then the test
+     ride.
 - **Guardrails:**
   - never set `status = "reviewed"` without the user's explicit confirmation;
   - never invent values, axis points or transforms;

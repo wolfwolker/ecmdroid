@@ -103,6 +103,8 @@ class TestCommands(unittest.TestCase):
                                   "--allow-proposed", "--format", "json")
             self.assertEqual(EXIT_OK, code, err)
             self.assertIsNone(json.loads(text)["rule_file"])  # no BUE2D-BUE2D.toml
+            self.assertIn("in testing", json.loads(text)["testing_note"])
+            self.assertIn("Don't burn the result", err)
 
     def test_convert_report_hides_private_data(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,6 +122,8 @@ class TestCommands(unittest.TestCase):
                                   "--force", "--all")
             self.assertEqual(EXIT_OK, code, err)
             self.assertIn("Verified:", text)
+            self.assertIn("> **calconv is in testing", text)
+            self.assertIn("Don't burn it yet.", text)
             self.assertIn("| KVIN |  | page 0 | (hidden, use --show-private) |", text)
 
     def test_show(self):

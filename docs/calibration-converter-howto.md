@@ -5,10 +5,13 @@ ECM with another firmware ID, for example a **BUE2D** tune on a **BUEYD** ECM.
 It uses `calconv`, an offline tool in this repository. The background and the
 rules are in [calibration-converter.md](calibration-converter.md).
 
-> **Status (October 2026):** the tool works and checks its own result, but no
-> converted file has been burned and ridden yet. The BUE2D → BUEYD rule file
-> still waits for review. Treat every result as an experiment: keep your
-> original image, and be ready to burn it back.
+> **Status (October 2026): in testing.** The tool works and checks its own
+> result, but no converted image has been burned and ridden yet, and the
+> BUE2D → BUEYD rule file still waits for review. **Don't burn a converted
+> image on an ECM that runs a motorcycle.** For now, use it to compare images
+> and review reports, and tell us what you find (see
+> [Beta testing](#beta-testing)). The burning steps below are for when it has
+> been validated.
 
 ## What it does and doesn't do
 
@@ -75,14 +78,20 @@ The commands are run from the repository root. Without pkgx, write
 
 4. **Read the report** (`xprs/report.md`). See the next section.
 
-5. **Review and burn** the result. EcmDroid has no map viewer yet, so open
-   the result in EcmSpy for Mono (or TunerPro) to look at the maps next to the
-   tune. To burn with EcmDroid: *EEPROM → Load*, then *Burn* (it needs
+5. **Review** the result. EcmDroid has no map viewer yet, so open the result
+   in EcmSpy for Mono (or TunerPro) to look at the maps next to the tune.
+
+While calconv is in testing, stop here. The next steps are for when it has
+been validated.
+
+### Burning (after validation)
+
+1. **Burn** the result. With EcmDroid: *EEPROM → Load*, then *Burn* (it needs
    *Enable EEPROM burning* in the settings, and the connected ECM must have
    the same ID as the file). A loaded file is always burned in full, also with
    *Optimized Burning*. Or burn with EcmSpy for Mono.
 
-6. **Check the burn.** Fetch again, save the image, and compare:
+2. **Check the burn.** Fetch again, save the image, and compare:
 
    ```sh
    tools/calconv/calconv.py diff xprs/tune_on_my_ecm.xpr xprs/fetched.xpr
@@ -90,10 +99,10 @@ The commands are run from the repository root. Without pkgx, write
 
    Pages 1…n must be equal. Page 0 can differ (odometer, trouble codes).
 
-7. **Reset both AFVs to 100 %** (*Setup → AFV Settings*, then *Apply
+3. **Reset both AFVs to 100 %** (*Setup → AFV Settings*, then *Apply
    Changes*). Your ECM learned them with the old maps.
 
-8. **Test carefully:** start, idle cold and warm, check for trouble codes, and
+4. **Test carefully:** start, idle cold and warm, check for trouble codes, and
    ride a short distance with a log. Watch the AFV and the EGO correction.
 
 If something is wrong, burn your original image back.
@@ -139,9 +148,46 @@ first BUE2D value is the extra one.
 | `would overwrite an input file` | `--out` is one of your input files. |
 | a rule-file error | The rule file has a mistake. The message names the entry. |
 
-## Getting help
+## Beta testing
 
-Open an issue with the report, after removing anything private. The report
-hides the VIN and security data, but it contains your calibration ID and the
-tune's values. Never share the `.xpr` files publicly: they contain your VIN and
-serial number.
+Thanks for helping. Until a converted image has been burned and ridden, the
+useful tests are the ones that need no ECM:
+
+- **Run it on your own pairs** of images: `info`, `plan`, `convert`. Does it
+  identify your files correctly? Does any command fail or say something
+  unclear?
+- **Check a result against the tune** in EcmSpy for Mono or TunerPro: fuel and
+  spark maps with their axes, rev limits, idle, fan, and the configuration
+  bits. Anything that differs from the tune and isn't in the report is a bug.
+- **Read the lists in the report:** *Kept: needs review*, *Excluded by the
+  rule file* and *Lost*. Is something missing that a tune for your bike
+  relies on?
+- **Tuners: review the rule file**
+  [`BUE2D-BUEYD.toml`](../tools/calconv/rules/BUE2D-BUEYD.toml). Each entry
+  has its evidence. Open questions:
+  - The fuel PI controller arrays (`Tab_PRF` …) have five values on a BUE2D
+    and four on a BUEYD. The rule drops the BUE2D's first value. What does
+    that value control?
+  - `Tab_Idle_Spark`: BUE2D can use it as the absolute idle advance
+    (`KSpark_Config` bit 1), BUEYD adds it to the timing tables. How should a
+    BUE2D tune's idle advance be set on a BUEYD?
+  - `KPIF1`: 4 bytes on BUE2D, 6 on BUEYD, no description. What is it?
+- **Other conversions:** `calconv draft-rules --from A --to B` drafts a rule
+  file for another pair, with every entry proposed.
+
+`--allow-proposed` shows what the proposed rules would change. The other open
+questions are in
+[calibration-converter.md](calibration-converter.md#open-questions).
+
+### What to send
+
+- The commit you used (`git rev-parse --short HEAD`), the command line, and
+  the ECM IDs.
+- The report, or the part of it that's wrong. The report hides the VIN and
+  security data, but it contains your calibration ID and the tune's values.
+- For a wrong value: the variable name and what you expected
+  (`calconv show VAR --id SRC --id DST --image FILE` prints it).
+
+**Never share the `.xpr` files publicly.** They contain your VIN and serial
+number. Send feedback to the person who shared calconv with you, or open an
+issue on the [fork](https://github.com/wolfwolker/ecmdroid/issues).

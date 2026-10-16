@@ -14,6 +14,11 @@ command reference in [README.md](README.md).
 and writes a third one. The person burns it with EcmDroid or EcmSpy for Mono,
 after reviewing it.
 
+**calconv is in testing.** No converted image has been burned and ridden yet.
+Tell the person not to burn a result on an ECM that runs a motorcycle, and
+point testers to *Beta testing* in
+[the how-to](../../docs/calibration-converter-howto.md#beta-testing).
+
 Run the commands from the repository root, as `tools/calconv/calconv.py …`
 (needs [pkgx](https://pkgx.sh)) or `python3 tools/calconv/calconv.py …`
 (Python 3.11 or newer).
@@ -77,12 +82,10 @@ them in the git-ignored `xprs/` folder, never commit them, and don't use
    - then the counts.
 6. **Next steps for the person** (the report lists them too):
    1. keep the target image as a backup;
-   2. load the result in EcmDroid or EcmSpy for Mono, review it, and burn it;
-   3. fetch again and check with `calconv diff RESULT FETCHED`: pages 1…n
-      must be equal;
-   4. reset both AFVs to 100 %;
-   5. start, idle cold and warm, check trouble codes, ride briefly with a log
-      (AFV, EGO correction).
+   2. compare the result with the tune in EcmSpy for Mono or TunerPro;
+   3. while calconv is in testing, don't burn it: report findings instead
+      (*Beta testing* in the how-to). The burning steps are in the how-to,
+      for when calconv has been validated.
 
 ## Guardrails
 
@@ -91,7 +94,8 @@ them in the git-ignored `xprs/` folder, never commit them, and don't use
   rule needs evidence from the database text or from real images.
 - Never edit `rules/common.toml` to get a variable copied. Its exclusions
   protect per-unit and identification data.
-- Never burn, and never tell the person a converted file is safe. The tool
+- Never burn, never tell the person to burn a result while calconv is in
+  testing, and never tell them a converted file is safe. The tool
   checks that it did what the rules say, not that the engine will run well.
 - Don't use `--allow-model-mismatch` unless the person knows both images are
   from the same model and asks for it.

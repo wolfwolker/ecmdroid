@@ -12,6 +12,13 @@ files for renamed variables and changed shapes (`draft-rules` drafts one).
 person. `convert` writes a new image and never changes its inputs. No command
 talks to an ECM: you burn the result with EcmDroid or EcmSpy for Mono.
 
+> **In testing.** No converted image has been burned and ridden yet, and the
+> BUE2D → BUEYD rule file still waits for review. Use it to compare images and
+> to review conversion reports, but **don't burn a converted image on an ECM
+> that runs a motorcycle**. Every conversion report says so too. To help test
+> it, see *Beta testing* in the
+> [how-to](../../docs/calibration-converter-howto.md#beta-testing).
+
 ## Running it
 
 The scripts start with a [pkgx](https://pkgx.sh) shebang that provides

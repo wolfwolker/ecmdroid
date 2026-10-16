@@ -11,5 +11,5 @@
 | [Database](database.md)                    | developers | Bundled ecmspy.com SQLite DB: schema, lookups, value conversion, updating it              |
 | [Live data & logging](logging.md)          | developers | Polling service, binary log format, MSL conversion, trouble-code decoding                 |
 | [Development](development.md)              | developers | Build, signing, tests, simulator, conventions, releasing, known issues                    |
-| [Moving a tune to another ECM](calibration-converter-howto.md) | riders | How to carry a tune to an ECM with another firmware ID (e.g. BUE2D → BUEYD) with the offline `calconv` tool, and how to read its report |
+| [Moving a tune to another ECM](calibration-converter-howto.md) | riders | How to carry a tune to an ECM with another firmware ID (e.g. BUE2D → BUEYD) with the offline `calconv` tool, how to read its report, and how to help test it (in testing: don't burn its results yet) |
 | [Calibration converter](calibration-converter.md) | developers | Plan, rules and status of the offline tool (`tools/calconv`) that compares and converts tunes between firmware layouts (first case BUE2D → BUEYD) |
