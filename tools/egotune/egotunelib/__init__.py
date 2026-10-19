@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
-"""Library behind the egotune command (see docs/tuning.md).
+"""Library behind the egotune command (see docs/egotune-howto.md).
 
 It reuses calconv's database and image modules (tools/calconv/calconvlib),
 so the ECM definitions and the .xpr handling are the same in both tools.

@@ -12,7 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
-"""From logs to per-cell corrections (docs/tuning.md, "Process").
+"""From logs to per-cell corrections (docs/egotune-howto.md).
 
 Every record goes through the same filters as the manual method, plus a few
 the manual method can't do in MegaLogViewer: it must be closed loop, warm,
@@ -308,7 +308,7 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
         if lo_hi and (abs(lo_hi[0] - 100) > 0.05 or abs(lo_hi[1] - 100) > 0.05):
             warnings.append(f"{key}: the AFV wasn't locked at 100 % during the ride "
                             f"({lo_hi[0]:.1f}-{lo_hi[1]:.1f} %). The corrections include it, "
-                            "but lock it for cleaner data (docs/tuning.md, step 1).")
+                            "but lock it for cleaner data (docs/egotune-howto.md, step 1).")
         if lo_hi and res.image_afv is not None and abs(res.image_afv - lo_hi[0]) > 0.5 \
                 and abs(lo_hi[1] - lo_hi[0]) <= 0.5:
             warnings.append(f"{key}: the image stores an AFV of {res.image_afv:.1f} %, the log shows "

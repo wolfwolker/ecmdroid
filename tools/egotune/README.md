@@ -1,7 +1,8 @@
 # egotune
 
-`egotune` automates the narrowband fuel-map tuning method in
-[docs/tuning.md](../../docs/tuning.md) for DDFI-3 ECMs (XB 2008+, 1125R/CR). It
+`egotune` automates narrowband fuel-map tuning for DDFI-3 ECMs (XB 2008+,
+1125R/CR). The steps for riders are in
+[docs/egotune-howto.md](../../docs/egotune-howto.md). It
 reads EcmDroid's binary logs (`.bin`) and the `.xpr` image that was in the ECM
 during the ride. It works out how much the ECM had to correct each fuel-map
 cell and writes a new `.xpr` with corrected `Tab_Fuel_Front` and
@@ -91,5 +92,5 @@ to a file.
 
 - Talk to the ECM. You lock the AFV, record, fetch and burn with EcmDroid (or
   EcmSpy for Mono).
-- Open loop or WOT. Narrowband data can't tune them (see the guide).
+- Open loop or WOT. Narrowband data can't tune them; they need a wideband sensor.
 - DDFI and DDFI-2 ECMs. Their maps and runtime data are laid out differently.
