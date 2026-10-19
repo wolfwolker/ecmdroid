@@ -1,0 +1,100 @@
+# egotune - narrowband fuel-map tuning for EcmDroid
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 3
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, see <http://www.gnu.org/licenses/>.
+
+import contextlib
+import io
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from tests.support import BUE2D_IMAGE, BUE2D_LOG, frame, log_bytes
+
+from egotunelib.cli import main
+
+
+def ride(seconds=20, ecm_id="BUE2D"):
+    frames = [frame(FBFuel=106, FBFuel1=106 + (-2, -1, 1, 2)[i % 4]) for i in range(round(seconds / 0.2))]
+    return log_bytes(frames, ecm_id=ecm_id)
+
+
+class CliTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.log = self.dir / "ride.bin"
+        self.log.write_bytes(ride())
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def call(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main([str(a) for a in argv])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_analyse_markdown(self):
+        code, out, _ = self.call("analyse", "--image", BUE2D_IMAGE, self.log)
+        self.assertEqual(code, 0)
+        self.assertIn("# Fuel-map corrections: BUE2D", out)
+        self.assertIn("**46** (45)", out)
+
+    def test_analyse_json(self):
+        code, out, _ = self.call("analyse", "--format", "json", "--image", BUE2D_IMAGE, self.log)
+        self.assertEqual(code, 0)
+        doc = json.loads(out)
+        self.assertEqual(doc["ecm_id"], "BUE2D")
+        self.assertEqual(doc["changes"]["rear"][0]["new"], 46)
+
+    def test_apply_writes_image(self):
+        result = self.dir / "iter1.xpr"
+        code, out, err = self.call("apply", "--image", BUE2D_IMAGE, self.log, "--out", result)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(result.read_bytes()), len(BUE2D_IMAGE.read_bytes()))
+        self.assertIn("in testing", err)
+        code, _, err = self.call("apply", "--image", BUE2D_IMAGE, self.log, "--out", result)
+        self.assertEqual(code, 2)
+        self.assertIn("--force", err)
+
+    def test_apply_refuses_to_overwrite_input(self):
+        copy = self.dir / "ecm.xpr"
+        copy.write_bytes(BUE2D_IMAGE.read_bytes())
+        code, _, err = self.call("apply", "--image", copy, self.log, "--out", copy, "--force")
+        self.assertEqual(code, 2)
+        self.assertIn("overwrite an input", err)
+
+    def test_apply_without_usable_data(self):
+        code, _, err = self.call("apply", "--image", BUE2D_IMAGE, BUE2D_LOG, "--out", self.dir / "x.xpr")
+        self.assertEqual(code, 2)
+        self.assertIn("no usable data", err)
+        self.assertFalse((self.dir / "x.xpr").exists())
+
+    def test_unknown_log_id_needs_id(self):
+        self.log.write_bytes(ride(ecm_id="UNKWN"))
+        code, _, err = self.call("analyse", "--image", BUE2D_IMAGE, self.log)
+        self.assertEqual(code, 2)
+        self.assertIn("--id", err)
+        code, _, _ = self.call("analyse", "--id", "BUE2D", "--image", BUE2D_IMAGE, self.log)
+        self.assertEqual(code, 0)
+
+    def test_layout_mismatch(self):
+        self.log.write_bytes(ride(ecm_id="BUEYD"))
+        code, _, err = self.call("analyse", "--image", BUE2D_IMAGE, self.log)
+        self.assertEqual(code, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
