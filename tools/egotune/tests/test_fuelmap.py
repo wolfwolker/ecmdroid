@@ -60,11 +60,12 @@ class FuelMapTest(unittest.TestCase):
         for _, w in weights:
             self.assertAlmostEqual(w, 0.25)
 
-    def test_not_ddfi3(self):
-        from calconvlib.image import load_image
-        from tests.support import FIXTURES, db
+    def test_ddfi1_not_supported(self):
+        from calconvlib.image import image_from_bytes
+        from tests.support import db
+        img = image_from_bytes(db(), bytes(db().layout("BUEKA").size), "BUEKA")
         with self.assertRaises(MapError):
-            load_fuel_map(load_image(db(), FIXTURES / "BUEIB.eeprom", "BUEIB"), "Tab_Fuel_Rear")
+            load_fuel_map(img, "Tab_Fuel_Rear")
 
 
 if __name__ == "__main__":

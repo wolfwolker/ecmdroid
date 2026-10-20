@@ -24,6 +24,8 @@ from egotunelib.runtime import RuntimeDefs, load_runtime_defs, parse_log
 FIXTURES = REPO_ROOT / "app" / "src" / "androidTest" / "resources"
 BUE2D_IMAGE = FIXTURES / "BUE2D.eeprom"  # .xpr, 3796 bytes
 BUE2D_LOG = FIXTURES / "BUE2D_log.bin"  # 2153 records, cold engine
+BUEIB_IMAGE = FIXTURES / "BUEIB.eeprom"  # DDFI-2 .epr, 1206 bytes: the maps that were in the ECM for...
+BUEIB_LOG = FIXTURES / "BUEIB_log.bin"  # ...this 42-minute warm ride (13982 records)
 
 # In the BUE2D test image: rear map row 5 (load 30), column 6 (3400 rpm) = 45
 ROW_30, COL_3400 = 5, 6

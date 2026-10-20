@@ -18,7 +18,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
-"""egotune: narrowband fuel-map tuning from EcmDroid logs (DDFI-3).
+"""egotune: narrowband fuel-map tuning from EcmDroid logs (DDFI-2/DDFI-3).
 
 Run it directly (needs pkgx, which provides Python 3.11 and uv), or with any
 Python 3.11+: `python3 egotune.py --help`. See README.md next to this file.

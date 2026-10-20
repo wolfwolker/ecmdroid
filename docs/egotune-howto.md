@@ -1,7 +1,8 @@
 # How to Tune the Fuel Maps with egotune
 
 This guide is for riders who want to fine-tune the closed-loop fuel maps of a
-DDFI-3 Buell (XB 2008+, 1125R/CR) with the stock narrowband O2 sensors. It uses
+DDFI-2 (XB 2003–2007) or DDFI-3 (XB 2008+, 1125R/CR) Buell with the stock
+narrowband O2 sensors. It uses
 `egotune`, an offline tool in this repository: you record a ride with EcmDroid,
 and egotune turns the log into corrected front and rear fuel maps in a new
 `.xpr`. The technical reference is [tools/egotune/README.md](../tools/egotune/README.md).
@@ -13,9 +14,10 @@ lock the AFV, log, apply part of the corrections, and iterate. egotune does the
 analysis that the post does with MegaLogViewer and a spreadsheet.
 
 > **Status (October 2026): in testing.** egotune checks its own result, but
-> no map it made has been burned and ridden yet, and its lookup check hasn't
-> been confirmed on a log and the image it was recorded with. Read every report
-> before you burn anything, and keep your original image.
+> no map it made has been burned and ridden yet. On DDFI-2 its map lookup
+> matches the ECM exactly on a real ride. On DDFI-3 that hasn't been confirmed
+> yet, so be extra careful there. Read every report before you burn anything,
+> and keep your original image.
 
 > **Warning:** burning the EEPROM changes how your engine runs. A wrong value
 > can make the engine run lean, overheat or get damaged. Buells have no knock
@@ -43,13 +45,19 @@ cell part of the way.
 - It only changes cells with **enough data**: at least 2 seconds.
 - It changes each cell **a little per round**: a third of the correction, at
   most +6 % or −3 %. So expect a few rounds.
-- It tunes the **front map only if the ECM runs closed loop on the front
-  cylinder**. That needs a front O2 sensor and firmware that uses it (BUE3D, or
-  *O2 Setup → Enable Independent Front CL*). Otherwise it leaves the front map
-  alone and says why.
+- **DDFI-2** has one O2 sensor, in the rear cylinder, and the ECM applies its
+  correction to both cylinders. egotune does the same: both maps move by the
+  same percentage. The front cylinder runs cooler (it gets the airflow first),
+  and the tune already accounts for that with its own front map and
+  `Tab_CR_Front`, a front correction over engine temperature. Moving both maps
+  together keeps that difference. egotune doesn't change `Tab_CR_Front`.
+- On **DDFI-3** it tunes the **front map only if the ECM runs closed loop on
+  the front cylinder**. That needs a front O2 sensor and firmware that uses it
+  (BUE3D, or *O2 Setup → Enable Independent Front CL*). Otherwise it leaves the
+  front map alone and says why.
 - It **can't** tune open loop or WOT: a narrowband sensor has nothing to say
   there. Those need a wideband sensor.
-- It only supports **DDFI-3** ECMs.
+- It supports **DDFI-2 and DDFI-3** ECMs, not the tube-frame DDFI.
 
 ## What you need
 
@@ -136,10 +144,11 @@ Warnings and what to do about them:
 
 | Warning | What to do |
 |---|---|
-| The image stores a different AFV than the log shows, or the lookup check has a large spread | You probably used the wrong image. Use the one you saved right after the last burn. |
+| The lookup check has a large spread, or the image stores a different AFV and asks whether it was in the ECM | You probably used the wrong image. Use the one you saved right after the last burn. |
+| The image stores a different AFV, and the maps match the log | The AFV changed after you saved the image: it isn't locked. Lock it (step 1). |
 | The AFV wasn't locked | egotune takes it into account, but lock it (step 1) for cleaner data. |
 | The image's AFV limits aren't locked at 100 % | Same as above. |
-| Front map left unchanged | Your ECM has no front closed loop. Only the rear map is tuned. |
+| Front map left unchanged (DDFI-3) | Your ECM has no front closed loop. Only the rear map is tuned. |
 | No record passed the filters | The engine wasn't warm, or never steady in closed loop. Ride longer after a full warm-up. |
 
 ## Settings

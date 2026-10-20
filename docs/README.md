@@ -3,7 +3,7 @@
 | Document                                   | For        | Contents                                                                                  |
 |--------------------------------------------|------------|-------------------------------------------------------------------------------------------|
 | [User guide](user-guide.md)                | riders     | Adapters, connecting, every screen, settings, troubleshooting                             |
-| [Tuning the fuel maps with egotune](egotune-howto.md) | riders | How to tune the closed-loop fuel maps of a DDFI-3 with the stock O2 sensors: lock the AFV, record a ride, let the offline `egotune` tool correct the maps, burn and repeat (in testing) |
+| [Tuning the fuel maps with egotune](egotune-howto.md) | riders | How to tune the closed-loop fuel maps of a DDFI-2 or DDFI-3 with the stock O2 sensors: lock the AFV, record a ride, let the offline `egotune` tool correct the maps, burn and repeat (in testing) |
 | [Supported ECMs](supported-ecms.md)        | everyone   | ECM IDs, families, stock vs P&A vs Factory Race, feature availability                     |
 | [Glossary & related software](glossary.md) | everyone   | Buell/DDFI terminology, ecmspy.com, ECMSpy Mono, TunerPro, MegaLogViewer                  |
 | [Architecture](architecture.md)            | developers | Components, flows, threading, Setup-screen DSL, preferences, permissions                  |

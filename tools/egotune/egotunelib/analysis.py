@@ -21,6 +21,13 @@ The correction the ECM needed is EGO x AFV / 100 (100 % = the map is right);
 with the AFV locked at 100 % that's simply the EGO correction. Each record is
 spread over the four cells around its operating point with the same bilinear
 weights the ECM uses to read the map, and weighted by the time it covers.
+
+DDFI-3 has a load, an EGO correction and an AFV per cylinder. DDFI-2 has one
+of each: one O2 sensor (in the rear cylinder) whose correction the ECM
+applies to both cylinders. Its correction goes into both maps, which keeps
+the front/rear difference the tune already has (the two maps and
+Tab_CR_Front, the front correction over engine temperature, which the ECM
+applies after the map lookup).
 """
 
 from __future__ import annotations
@@ -51,10 +58,19 @@ class Cylinder:
     image_afv: str  # stored AFV in the image
 
 
-CYLINDERS = {
+DDFI3_CYLINDERS = {
     "front": Cylinder("front", "Tab_Fuel_Front", "FLoad", "FBFuel1", "LFuel1_LD", "TabFuel1_Raw", "LFuel1"),
     "rear": Cylinder("rear", "Tab_Fuel_Rear", "RLoad", "FBFuel", "LFuel_LD", "TabFuel2_Raw", "LFuel"),
 }
+DDFI2_CYLINDERS = {
+    "front": Cylinder("front", "Tab_Fuel_Front", "RLoad", "FBFuel", "LFuel_LD", "TabFuel1_Raw", "LFuel"),
+    "rear": Cylinder("rear", "Tab_Fuel_Rear", "RLoad", "FBFuel", "LFuel_LD", "TabFuel2_Raw", "LFuel"),
+}
+
+
+def cylinders_for(defs: RuntimeDefs) -> dict[str, Cylinder]:
+    """DDFI-3 logs have a front EGO correction, DDFI-2 logs don't."""
+    return DDFI3_CYLINDERS if defs.has("FBFuel1") else DDFI2_CYLINDERS
 
 REQUIRED = ("RPM", "TE", "CrTE", "CrAcc", "Flags1", "Flags2")
 
@@ -174,6 +190,7 @@ class Analysis:
     cylinders: dict[str, CylinderResult]
     setup: dict[str, float | None]
     warnings: list[str]
+    shared_feedback: bool = False  # one O2 sensor for both maps (DDFI-2)
 
 
 def image_setup(img: Image) -> dict[str, float | None]:
@@ -192,16 +209,18 @@ def _robust(xs: list[float]) -> tuple[float, float]:
 def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Settings | None = None,
             cylinders: tuple[str, ...] = ("front", "rear")) -> Analysis:
     settings = settings or Settings()
+    cyls = cylinders_for(defs)
+    shared = cyls["front"].ego == cyls["rear"].ego
     missing = [c for c in REQUIRED if not defs.has(c)]
     for key in cylinders:
-        cyl = CYLINDERS[key]
+        cyl = cyls[key]
         missing += [c for c in (cyl.load, cyl.ego, cyl.afv) if not defs.has(c)]
     if missing:
         raise ValueError(f"{defs.ecm_id}: runtime channels missing in the database: {', '.join(missing)}")
 
     setup = image_setup(img)
     ego_max, ego_min = setup["KFBFuel_Max"], setup["KFBFuel_Min"]
-    results = {k: CylinderResult(CYLINDERS[k], load_fuel_map(img, CYLINDERS[k].map_name)) for k in cylinders}
+    results = {k: CylinderResult(cyls[k], load_fuel_map(img, cyls[k].map_name)) for k in cylinders}
     for res in results.values():
         res.image_afv = setup[res.cylinder.image_afv]
     excluded: Counter = Counter()
@@ -227,7 +246,7 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
                 last_event = t
             else:
                 d_rpm = abs(rpm - defs.value(prev.frame, "RPM")) / dt
-                d_load = max(abs(defs.value(f, CYLINDERS[k].load) - defs.value(prev.frame, CYLINDERS[k].load))
+                d_load = max(abs(defs.value(f, cyls[k].load) - defs.value(prev.frame, cyls[k].load))
                              for k in cylinders) / dt
                 if d_rpm > settings.rpm_rate or d_load > settings.load_rate:
                     last_event = t
@@ -237,7 +256,7 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
             running = defs.bit(f, "Flags1", RUNNING) and rpm >= 500
             if running:
                 for key in cylinders:
-                    cyl = CYLINDERS[key]
+                    cyl = cyls[key]
                     afv_seen[key].append(defs.value(f, cyl.afv))
                     if defs.has(cyl.table_fuel):
                         logged = defs.value(f, cyl.table_fuel)
@@ -267,7 +286,7 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
                 used += 1
                 egos = {}
                 for key in cylinders:
-                    cyl = CYLINDERS[key]
+                    cyl = cyls[key]
                     ego = defs.value(f, cyl.ego)
                     afv = defs.value(f, cyl.afv)
                     egos[key] = ego
@@ -290,7 +309,7 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
         if ratios[key]:
             median, spread = _robust(ratios[key])
             res.lookup = LookupCheck(len(ratios[key]), math.exp(median), spread)
-    if "front" in results and used:
+    if "front" in results and used and not shared:
         front = results["front"]
         moving = len(ego_values["front"]) > 3
         if not moving:
@@ -304,15 +323,21 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
     for key, res in results.items():
         if not res.active:
             warnings.append(f"{key}: map left unchanged, {res.inactive_reason}.")
-        lo_hi = res.afv_range
+        # With one AFV for both maps, warn about it once.
+        lo_hi = None if shared and key == "front" and "rear" in results else res.afv_range
         if lo_hi and (abs(lo_hi[0] - 100) > 0.05 or abs(lo_hi[1] - 100) > 0.05):
             warnings.append(f"{key}: the AFV wasn't locked at 100 % during the ride "
                             f"({lo_hi[0]:.1f}-{lo_hi[1]:.1f} %). The corrections include it, "
                             "but lock it for cleaner data (docs/egotune-howto.md, step 1).")
         if lo_hi and res.image_afv is not None and abs(res.image_afv - lo_hi[0]) > 0.5 \
                 and abs(lo_hi[1] - lo_hi[0]) <= 0.5:
-            warnings.append(f"{key}: the image stores an AFV of {res.image_afv:.1f} %, the log shows "
-                            f"{lo_hi[0]:.1f} %. Was this image in the ECM during the ride?")
+            if res.lookup.spread is not None and res.lookup.spread < 0.01:
+                warnings.append(f"{key}: the image stores an AFV of {res.image_afv:.1f} %, the log shows "
+                                f"{lo_hi[0]:.1f} %. The maps match the log, so the AFV changed since the "
+                                "image was saved: lock it (docs/egotune-howto.md, step 1).")
+            else:
+                warnings.append(f"{key}: the image stores an AFV of {res.image_afv:.1f} %, the log shows "
+                                f"{lo_hi[0]:.1f} %. Was this image in the ECM during the ride?")
         lk = res.lookup
         if lk.spread is not None and lk.spread > 0.05:
             warnings.append(f"{key}: the map lookup doesn't follow the ECM's logged table fuel value "
@@ -327,4 +352,4 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
 
     summaries = [LogSummary(log.name, log.ecm_id, len(log.records), log.bad_checksum, log.duration)
                  for log in logs]
-    return Analysis(img.ecm_id, settings, summaries, total, used, excluded, results, setup, warnings)
+    return Analysis(img.ecm_id, settings, summaries, total, used, excluded, results, setup, warnings, shared)

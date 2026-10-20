@@ -12,12 +12,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
-"""DDFI-3 fuel maps: Tab_Fuel_Front/Tab_Fuel_Rear over RPM x load.
+"""DDFI-2/DDFI-3 fuel maps: Tab_Fuel_Front/Tab_Fuel_Rear over RPM x load.
 
 A map is stored row by row: one row per load breakpoint, one column per RPM
-breakpoint (row * cols + col). Axes can be stored in descending order, and
+breakpoint. On DDFI-2 each row ends with `skip` (1) unused bytes, so a row
+is cols + skip bytes long (index = row * (cols + skip) + col); the BUEIB test
+log matches this layout exactly. Axes can be stored in descending order, and
 unused breakpoints at the end are zero (the BUE2D test image uses 17 of its
-20 RPM columns), so only the used part is addressed.
+20 RPM columns, the BUEIB one 12 of 13), so only the used part is addressed.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from dataclasses import dataclass
 from calconvlib.image import Image, element_ints, encode_element, physical_values
 
 MAPS = ("Tab_Fuel_Front", "Tab_Fuel_Rear")
+FAMILIES = ("DDFI-2", "DDFI-3")  # checked against real logs; DDFI-1 isn't
 
 
 class MapError(Exception):
@@ -80,10 +83,15 @@ class FuelMap:
     rows: int
     rpm: Axis  # columns
     load: Axis  # rows
-    values: list[float]  # physical cell values, row by row
+    values: list[float]  # physical values as stored, row by row, including skipped bytes
+    skip: int = 0  # unused bytes at the end of each row
+
+    @property
+    def stride(self) -> int:
+        return self.cols + self.skip
 
     def index(self, row: int, col: int) -> int:
-        return row * self.cols + col
+        return row * self.stride + col
 
     def cells_in_use(self) -> list[int]:
         return [self.index(r, c) for r in range(self.load.used) for c in range(self.rpm.used)]
@@ -98,22 +106,23 @@ class FuelMap:
         return sum(self.values[i] * w for i, w in self.cell_weights(rpm, load))
 
     def row_col(self, index: int) -> tuple[int, int]:
-        return divmod(index, self.cols)
+        return divmod(index, self.stride)
 
 
 def load_fuel_map(img: Image, name: str) -> FuelMap:
     var = img.var(name)
-    if var is None or var.type != "Map":
-        raise MapError(f"{img.ecm_id} has no fuel map {name} (egotune supports DDFI-3 ECMs)")
+    if img.layout.family not in FAMILIES or var is None or var.type != "Map":
+        raise MapError(f"{img.ecm_id} has no fuel map {name} (egotune supports DDFI-2 and DDFI-3 ECMs)")
     xname, yname = img.layout.axis_refs(var)
     if not xname or not yname:
         raise MapError(f"{name}: axis variables missing in the database")
     rpm = make_axis(xname, img.physical(img.var(xname)))
     load = make_axis(yname, img.physical(img.var(yname)))
-    if var.cols != len(rpm.values) or var.rows != len(load.values) or var.count != var.cols * var.rows:
-        raise MapError(f"{name}: {var.cols}x{var.rows} cells don't match its axes "
-                       f"({len(rpm.values)} x {len(load.values)} breakpoints)")
-    return FuelMap(name, var.cols, var.rows, rpm, load, img.physical(var))
+    skip = var.skip or 0
+    if var.cols != len(rpm.values) or var.rows != len(load.values) or var.count != (var.cols + skip) * var.rows:
+        raise MapError(f"{name}: {var.cols}x{var.rows} cells (+{skip} per row) don't match its axes "
+                       f"({len(rpm.values)} x {len(load.values)} breakpoints) or its {var.count} elements")
+    return FuelMap(name, var.cols, var.rows, rpm, load, img.physical(var), skip)
 
 
 def encode_map(img: Image, name: str, values: list[float]) -> bytes:

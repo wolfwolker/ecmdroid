@@ -1,7 +1,7 @@
 # egotune
 
-`egotune` automates narrowband fuel-map tuning for DDFI-3 ECMs (XB 2008+,
-1125R/CR). The steps for riders are in
+`egotune` automates narrowband fuel-map tuning for DDFI-2 (XB 2003–2007) and
+DDFI-3 (XB 2008+, 1125R/CR) ECMs. The steps for riders are in
 [docs/egotune-howto.md](../../docs/egotune-howto.md). It
 reads EcmDroid's binary logs (`.bin`) and the `.xpr` image that was in the ECM
 during the ride. It works out how much the ECM had to correct each fuel-map
@@ -9,10 +9,10 @@ cell and writes a new `.xpr` with corrected `Tab_Fuel_Front` and
 `Tab_Fuel_Rear` maps. You don't need MegaLogViewer, `.msl` files, a
 spreadsheet or a map editor.
 
-> **In testing.** No map made by egotune has been burned and ridden yet, and
-> the lookup check (below) hasn't been confirmed on a log and the image it was
-> recorded with. Review every change before you burn it, and keep your
-> original image.
+> **In testing.** No map made by egotune has been burned and ridden yet. On
+> DDFI-2 its map lookup matches the ECM exactly on a real ride (see the lookup
+> check below). On DDFI-3 that hasn't been confirmed yet. Review every change
+> before you burn it, and keep your original image.
 
 ## Running it
 
@@ -48,8 +48,17 @@ to a file.
    enrichment event or the start of closed loop. The report counts what was
    left out and why.
 3. **Works out the correction per cylinder** as EGO × AFV / 100. With the AFV
-   locked at 100 % (recommended), that's just the EGO correction. The rear
-   cylinder uses `FBFuel` and `RLoad`, the front `FBFuel1` and `FLoad`.
+   locked at 100 % (recommended), that's just the EGO correction.
+   - **DDFI-3:** the rear cylinder uses `FBFuel`, `LFuel_LD` and `RLoad`, the
+     front `FBFuel1`, `LFuel1_LD` and `FLoad`.
+   - **DDFI-2:** there's one O2 sensor, in the rear cylinder, one AFV and one
+     load (`FBFuel`, `LFuel_LD`, `RLoad`). The ECM applies that one EGO
+     correction to both cylinders, so egotune puts it into both maps. Both
+     maps then move by the same percentage, which keeps the front/rear
+     difference of the tune: the difference between the two maps, and
+     `Tab_CR_Front`, the front-cylinder correction over engine temperature
+     that the ECM applies after the map lookup. egotune doesn't change
+     `Tab_CR_Front`.
 4. **Spreads each record over the four cells around it**, with the same
    bilinear weights the ECM uses to read the map, and weights it by the time
    it covers. Each cell gets the time-weighted mean correction and its seconds
@@ -64,24 +73,35 @@ to a file.
    - The result is rounded to the map's resolution. A change that rounds away
      is listed as *below resolution*.
    - Only the breakpoints in use are touched: unused, zero-padded axis entries
-     aren't.
-6. **Leaves the front map alone** if the front EGO correction doesn't move, or
-   is just a copy of the rear one. Either way, the ECM has no front O2
-   feedback to tune from.
+     aren't. On DDFI-2 each map row ends with an unused byte (`skip` in the
+     database), which isn't touched either.
+6. **DDFI-3: leaves the front map alone** if the front EGO correction doesn't
+   move, or is just a copy of the rear one. Either way, the ECM has no front
+   O2 feedback to tune from.
 
 ## Checks and warnings
 
 - **Lookup check.** The runtime frame also carries the ECM's own map lookup
-  (`TabFuel1_Raw`, `TabFuel2_Raw`). egotune recomputes it from the image. If
-  the two don't follow each other (a spread above 5 %), the image probably
-  isn't the one that was in the ECM during the ride. Until this check has been
-  confirmed on a matching image and log, the result is a warning, not an
-  error. On the app's test fixtures (`BUE2D.eeprom` and `BUE2D_log.bin`) the
-  spread is 8 % (rear) and 20 % (front). Those two files weren't recorded
-  together: the image stores a rear AFV of 87.9 %, while the log shows 100 %.
+  (`TabFuel1_Raw` front, `TabFuel2_Raw` rear). egotune recomputes it from the
+  image. If the two don't follow each other (a spread above 5 %), the image
+  probably isn't the one that was in the ECM during the ride, or the lookup is
+  wrong for that ECM. It's a warning, not an error.
+  - **DDFI-2: confirmed.** On the app's BUEIB test image and log (a 42-minute
+    ride), the logged value is exactly 37.5 × the map lookup for both maps on
+    all 13,982 records. 37.5 is the scale of the channel (1 / 0.026666). This
+    confirms the map layout (including the skipped byte at the end of each
+    row), the axes, the bilinear lookup and the load channel.
+  - **DDFI-3: open.** On the BUE2D test image and log, the factor is 58–69
+    instead of 37.5, with a spread of 8 % (rear) and 20 % (front), and it
+    drifts with load. Those two files don't belong together (the image stores
+    a rear AFV of 87.9 %, the log shows 100 %), but a different tune alone
+    hardly explains a factor that far off. DDFI-3 may compute the logged value
+    differently, or the logged load may not be exactly what indexes the map.
+    This needs a DDFI-3 log with the image it was recorded with.
 - **AFV.** egotune warns if the image's AFV limits aren't locked at 100 %, if
   the live AFV moved during the ride, or if the image's stored AFV differs from
-  the logged one.
+  the logged one. When the lookup check matches, that difference only means the
+  AFV changed since the image was saved, and the warning says so.
 - **EGO limit.** A cell whose EGO correction sat at the image's
   `KFBFuel_Max`/`KFBFuel_Min` for at least 20 % of its data is marked `!`. The
   real error there is bigger than the mean shows.
@@ -93,4 +113,5 @@ to a file.
 - Talk to the ECM. You lock the AFV, record, fetch and burn with EcmDroid (or
   EcmSpy for Mono).
 - Open loop or WOT. Narrowband data can't tune them; they need a wideband sensor.
-- DDFI and DDFI-2 ECMs. Their maps and runtime data are laid out differently.
+- DDFI (tube-frame) ECMs. The database has their maps, but there's no test
+  log to check egotune against, so it refuses them.

@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="egotune",
-        description="Narrowband fuel-map tuning for DDFI-3 ECMs: computes per-cell corrections "
+        description="Narrowband fuel-map tuning for DDFI-2 and DDFI-3 ECMs: computes per-cell corrections "
                     "from EcmDroid logs and applies them to the fuel maps of an .xpr. "
                     "See docs/egotune-howto.md.")
     parser.add_argument("--version", action="version", version=f"egotune {__version__}")

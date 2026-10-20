@@ -126,9 +126,15 @@ def markdown(a: Analysis, changes: dict[str, MapChanges] | None, image: Path, ou
                  f"{_fmt(s.min_te)} °C, settle {_fmt(s.settle)} s")
     setup = a.setup
     if setup.get("KLFuel_Max") is not None:
-        lines.append(f"- Image setup: AFV rear {setup['LFuel']:g} %, front {setup['LFuel1']:g} %, "
+        afv = (f"AFV {setup['LFuel']:g} %" if setup.get("LFuel1") is None
+               else f"AFV rear {setup['LFuel']:g} %, front {setup['LFuel1']:g} %")
+        lines.append(f"- Image setup: {afv}, "
                      f"AFV limits {setup['KLFuel_Min']:g}–{setup['KLFuel_Max']:g} %, "
                      f"EGO limits {setup['KFBFuel_Min']:g}–{setup['KFBFuel_Max']:g} %")
+    if a.shared_feedback:
+        lines.append("- One O2 sensor (rear cylinder) for both maps: its correction goes into both, "
+                     "so the front/rear difference of the tune (the two maps and `Tab_CR_Front`) stays "
+                     "as it is.")
     lines.append("")
     if a.warnings:
         lines += ["## Warnings", ""] + [f"- {w}" for w in a.warnings] + [""]

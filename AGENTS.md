@@ -39,7 +39,7 @@ tools/calconv/calconv.py draft-rules --from BUEIB --to BUECB  # proposed rule fi
 
 Rule files per direction live in `tools/calconv/rules/` (`<FROM>-<TO>.toml`); only entries with `status = "reviewed"` are applied. When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Real images go in the git-ignored `xprs/` folder. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN). On DDFI/DDFI-2 the serial number and manufacturing date are in page 1 (offsets 9–13), so scrub those too.
 
-`tools/egotune/` automates narrowband fuel-map tuning for DDFI-3 (rider steps in `docs/egotune-howto.md`): it reads EcmDroid `.bin` logs and the `.xpr` that was in the ECM during the ride, and writes a new `.xpr` where only `Tab_Fuel_Front`/`Tab_Fuel_Rear` changed. Same conventions as calconv, whose `calconvlib` it imports (it must stay next to `tools/calconv`). It's in testing: never burn its output for someone, and never relax its caps (`--max-rich`, `--max-lean`) without the person asking.
+`tools/egotune/` automates narrowband fuel-map tuning for DDFI-2 and DDFI-3 (rider steps in `docs/egotune-howto.md`): it reads EcmDroid `.bin` logs and the `.xpr` that was in the ECM during the ride, and writes a new `.xpr` where only `Tab_Fuel_Front`/`Tab_Fuel_Rear` changed. Same conventions as calconv, whose `calconvlib` it imports (it must stay next to `tools/calconv`). It's in testing: never burn its output for someone, and never relax its caps (`--max-rich`, `--max-lean`) without the person asking.
 
 ```sh
 tools/egotune/test.py
