@@ -17,12 +17,18 @@
 new = old x (1 + gain x confidence x (correction / 100 - 1)), clamped to
 max_rich/max_lean per iteration and rounded to the map's resolution.
 confidence grows with the seconds of data in the cell, up to full_seconds.
-Cells with less than min_seconds of data, and every cell of a cylinder
-without closed-loop feedback, keep their value.
+These cells keep their value: cells with less than min_seconds of data,
+noisy cells (spread above max_cell_std), outliers (more than `outlier`
+points away from the mean of at least two trusted neighbours: real maps
+change smoothly), and every cell of a cylinder without closed-loop feedback.
+With a baseline (the original tune), no cell moves further than
+max_from_baseline from it; a cell is never pushed against its correction to
+get back inside.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from calconvlib.image import Image
@@ -37,6 +43,9 @@ BELOW_RESOLUTION = "below resolution"  # the change rounds away
 FEW_DATA = "too little data"
 NO_DATA = "no data"
 INACTIVE = "no feedback"
+NOISY = "noisy"
+OUTLIER = "outlier"
+BASELINE_LIMIT = "baseline limit"  # changed less than wanted, or not at all, because of the baseline
 
 
 @dataclass
@@ -62,7 +71,7 @@ class MapChanges:
 
     @property
     def changed(self) -> list[CellChange]:
-        return [c for c in self.cells.values() if c.state in (CHANGED, CAPPED)]
+        return [c for c in self.cells.values() if c.new != c.old]
 
     def values(self, old: list[float]) -> list[float]:
         out = list(old)
@@ -71,8 +80,21 @@ class MapChanges:
         return out
 
 
-def propose(res: CylinderResult, settings: Settings) -> MapChanges:
+def _neighbour_mean(res: CylinderResult, idx: int, trusted: set[int]) -> tuple[float, int]:
     fmap = res.fuel_map
+    row, col = fmap.row_col(idx)
+    near = [fmap.index(r, c) for r in (row - 1, row, row + 1) for c in (col - 1, col, col + 1)
+            if (r, c) != (row, col) and 0 <= r < fmap.load.used and 0 <= c < fmap.rpm.used]
+    near = [i for i in near if i in trusted]
+    weight = sum(res.cells[i].seconds for i in near)
+    if not weight:
+        return 100.0, 0
+    return sum(res.cells[i].mean * res.cells[i].seconds for i in near) / weight, len(near)
+
+
+def propose(res: CylinderResult, settings: Settings, baseline: list[float] | None = None) -> MapChanges:
+    fmap = res.fuel_map
+    trusted = set(res.trusted(settings))
     cells = {}
     for idx in fmap.cells_in_use():
         old = fmap.values[idx]
@@ -89,6 +111,13 @@ def propose(res: CylinderResult, settings: Settings) -> MapChanges:
         if seconds < settings.min_seconds:
             cells[idx] = CellChange(idx, old, old, corr, seconds, FEW_DATA, sat)
             continue
+        if stat.std > settings.max_cell_std:
+            cells[idx] = CellChange(idx, old, old, corr, seconds, NOISY, sat)
+            continue
+        near, count = _neighbour_mean(res, idx, trusted)
+        if count >= 2 and abs(corr - near) > settings.outlier:
+            cells[idx] = CellChange(idx, old, old, corr, seconds, OUTLIER, sat)
+            continue
         confidence = min(1.0, seconds / settings.full_seconds)
         factor = 1 + settings.gain * confidence * (corr / 100.0 - 1)
         lo, hi = 1 - settings.max_lean / 100.0, 1 + settings.max_rich / 100.0
@@ -100,7 +129,18 @@ def propose(res: CylinderResult, settings: Settings) -> MapChanges:
             new -= 1
         while new < old * lo - 1e-9:
             new += 1
-        if new == old:
+        limited = False
+        if baseline is not None:
+            band = settings.max_from_baseline / 100.0
+            top = float(math.floor(baseline[idx] * (1 + band) + 1e-9))
+            bottom = float(math.ceil(baseline[idx] * (1 - band) - 1e-9))
+            if new > top and new > old:
+                new, limited = max(old, top), True
+            elif new < bottom and new < old:
+                new, limited = min(old, bottom), True
+        if limited:
+            state = BASELINE_LIMIT
+        elif new == old:
             state = BELOW_RESOLUTION
         else:
             state = CAPPED if capped else CHANGED
@@ -108,8 +148,8 @@ def propose(res: CylinderResult, settings: Settings) -> MapChanges:
     return MapChanges(res.cylinder.key, res.cylinder.map_name, cells)
 
 
-def propose_all(analysis: Analysis) -> dict[str, MapChanges]:
-    return {k: propose(r, analysis.settings) for k, r in analysis.cylinders.items()}
+def propose_all(analysis: Analysis, baselines: dict[str, list[float]] | None = None) -> dict[str, MapChanges]:
+    return {k: propose(r, analysis.settings, (baselines or {}).get(k)) for k, r in analysis.cylinders.items()}
 
 
 class VerifyError(Exception):

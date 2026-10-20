@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import __version__, report
 from .analysis import Settings, analyse
+from .checks import NAMES, run_checks
 from .fuelmap import MapError
 from .runtime import LogError, load_runtime_defs, log_id, parse_log, read_log
 from .tune import VerifyError, build_image, propose_all
@@ -29,7 +30,7 @@ from .tune import VerifyError, build_image, propose_all
 from calconvlib.db import DEFAULT_DB, Database, DatabaseError
 from calconvlib.image import ImageError, load_image
 
-EXIT_OK, EXIT_ERROR = 0, 2
+EXIT_OK, EXIT_CHECKS, EXIT_ERROR = 0, 1, 2  # 1: a check failed (apply wrote nothing)
 
 
 class UsageError(Exception):
@@ -65,6 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help=f"most a cell may gain per iteration (%%, default {d.max_rich:g})")
     g.add_argument("--max-lean", type=float, default=d.max_lean,
                    help=f"most a cell may lose per iteration (%%, default {d.max_lean:g})")
+    g.add_argument("--baseline", type=Path,
+                   help="your original tune (.xpr): no cell moves further from it than --max-from-baseline")
+    g.add_argument("--max-from-baseline", type=float, default=d.max_from_baseline,
+                   help=f"most a cell may move away from --baseline (%%, default {d.max_from_baseline:g})")
+    g.add_argument("--accept", action="append", default=[], choices=NAMES, metavar="CHECK",
+                   help="let apply go ahead although this check fails (repeatable; the report says so). "
+                        f"Checks: {', '.join(NAMES)}")
 
     parser = argparse.ArgumentParser(
         prog="egotune",
@@ -83,10 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
 def settings_from(args) -> Settings:
     s = Settings(min_te=args.min_te, max_warmup=args.max_warmup, settle=args.settle,
                  min_seconds=args.min_seconds, full_seconds=args.full_seconds, gain=args.gain,
-                 max_rich=args.max_rich, max_lean=args.max_lean)
+                 max_rich=args.max_rich, max_lean=args.max_lean, max_from_baseline=args.max_from_baseline)
     if not 0 < s.gain <= 1:
         raise UsageError("--gain must be between 0 and 1")
-    if s.max_rich < 0 or s.max_lean < 0 or s.min_seconds < 0 or s.full_seconds <= 0:
+    if s.max_rich < 0 or s.max_lean < 0 or s.min_seconds < 0 or s.full_seconds <= 0 or s.max_from_baseline < 0:
         raise UsageError("limits must be positive")
     return s
 
@@ -114,25 +122,40 @@ def run(args: argparse.Namespace) -> tuple[str, int]:
 
     cylinders = ("front", "rear") if args.cylinders == "both" else (args.cylinders,)
     a = analyse(img, defs, logs, settings_from(args), cylinders)
-    changes = propose_all(a)
+    baselines = None
+    if args.baseline:
+        base = load_image(db, args.baseline, ecm_id)
+        baselines = {k: base.physical(base.var(r.cylinder.map_name)) for k, r in a.cylinders.items()}
+    else:
+        a.warnings.append("No --baseline given: the total change over several rounds isn't limited. "
+                          "Pass your original tune with --baseline.")
+    changes = propose_all(a, baselines)
+    checks = run_checks(a, changes, tuple(args.accept), baselines is not None)
+    blocked = [c for c in checks if c.blocking]
     out = None
+    code = EXIT_CHECKS if blocked else EXIT_OK
     if args.command == "apply":
-        out = args.out
-        for given in [args.image, *args.logs]:
-            if out.resolve() == given.resolve():
-                raise UsageError(f"--out {out} would overwrite an input file")
-        if out.exists() and not args.force:
-            raise UsageError(f"{out} exists. Use --force to overwrite it.")
+        for given in [args.image, *args.logs, *([args.baseline] if args.baseline else [])]:
+            if args.out.resolve() == given.resolve():
+                raise UsageError(f"--out {args.out} would overwrite an input file")
+        if args.out.exists() and not args.force:
+            raise UsageError(f"{args.out} exists. Use --force to overwrite it.")
         if not a.used:
             raise UsageError("no usable data in the logs: nothing written (see `egotune analyse`)")
+    if args.command == "apply" and blocked:
+        names = ", ".join(c.name for c in blocked)
+        print(f"egotune: not applied, check(s) failed: {names}. See the report; "
+              "--accept CHECK overrides one after you've looked into it.", file=sys.stderr)
+    elif args.command == "apply":
+        out = args.out
         data = build_image(img, changes)
         try:
             out.write_bytes(data)
         except OSError as e:
             raise UsageError(f"can't write {out}: {e.strerror}") from e
     if args.format == "json":
-        return report.as_json(a, changes, args.image, out), EXIT_OK
-    return report.markdown(a, changes, args.image, out), EXIT_OK
+        return report.as_json(a, changes, checks, args.image, out), code
+    return report.markdown(a, changes, checks, args.image, out, args.command == "apply" and bool(blocked)), code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -150,6 +173,6 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_ERROR
     else:
         sys.stdout.write(text)
-    if args.command == "apply":
+    if args.command == "apply" and code == EXIT_OK:
         print(report.TESTING_NOTE, file=sys.stderr)
     return code

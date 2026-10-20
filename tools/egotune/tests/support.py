@@ -81,3 +81,28 @@ def steady(seconds: float, step: float = 0.2, **values) -> list[bytes]:
 
 def make_log(frames, step: float = 0.2):
     return parse_log(log_bytes(frames, step), defs().frame_len)
+
+
+def ride(seconds: float, points=((3400, 30),), step: float = 0.2, ego=100.0, **values) -> list[bytes]:
+    """A healthy warm closed-loop ride: the O2 sensor switches rich/lean about
+    2.5 times a second, the front EGO correction moves around the rear one,
+    and the logged table fuel is the image's own lookup (x 37.5, as on DDFI-2).
+    Each operating point gets an equal share of the time; `ego` is the rear
+    EGO correction, or a function of the record number."""
+    from egotunelib.fuelmap import load_fuel_map
+    img = image()
+    front, rear = load_fuel_map(img, "Tab_Fuel_Front"), load_fuel_map(img, "Tab_Fuel_Rear")
+    n = round(seconds / step)
+    per_point = max(1, n // len(points))
+    frames = []
+    for i in range(n):
+        rpm, load = points[min(i // per_point, len(points) - 1)]
+        e = ego(i) if callable(ego) else ego
+        v = {"RPM": rpm, "FLoad": load, "RLoad": load, "FBFuel": e,
+             "FBFuel1": e + (-1, 0, 1, 0)[i % 4],
+             "Flags2": 0b11000000 if i % 4 < 2 else 0b10000000,
+             "TabFuel1_Raw": round(front.lookup(rpm, load) * 37.5),
+             "TabFuel2_Raw": round(rear.lookup(rpm, load) * 37.5)}
+        v.update(values)
+        frames.append(frame(**v))
+    return frames

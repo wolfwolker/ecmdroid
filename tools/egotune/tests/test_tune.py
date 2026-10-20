@@ -133,7 +133,9 @@ class TuneTest(unittest.TestCase):
         a = analyse(image(), defs(), [log])
         self.assertEqual(a.used, 0)
         self.assertEqual(a.records, 2153)
-        self.assertTrue(any("No record passed" in w for w in a.warnings))
+        from egotunelib.checks import run_checks
+        checks = {c.name: c for c in run_checks(a, propose_all(a))}
+        self.assertFalse(checks["short-log"].passed)
         # This image wasn't in the ECM when the log was recorded: the stored AFV differs.
         self.assertTrue(any("Was this image in the ECM" in w for w in a.warnings))
 

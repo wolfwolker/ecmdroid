@@ -21,7 +21,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .analysis import REASONS, Analysis, CylinderResult
-from .tune import CAPPED, CHANGED, MapChanges
+from .checks import Check
+from .tune import BASELINE_LIMIT, CAPPED, NOISY, OUTLIER, MapChanges
 
 TESTING_NOTE = ("egotune is in testing: no map it produced has been burned and ridden yet. "
                 "Review every change before you burn it, and keep your original image.")
@@ -75,6 +76,16 @@ def _cylinder_md(res: CylinderResult, changes: MapChanges | None, a: Analysis) -
         sat = [c for c in changes.cells.values() if c.saturated]
         out.append(f"- Cells changed: **{len(ch)}** ({rich} richer, {len(ch) - rich} leaner, "
                    f"{capped} limited by the ±cap)")
+        fmap = res.fuel_map
+        for state, why in ((OUTLIER, "disagree with their neighbours by more than "
+                                     f"{_fmt(s.outlier)} points"),
+                           (NOISY, f"spread more than {_fmt(s.max_cell_std)} % within the cell"),
+                           (BASELINE_LIMIT, f"stopped at ±{_fmt(s.max_from_baseline)} % from the baseline")):
+            cells = [c for c in changes.cells.values() if c.state == state]
+            if cells:
+                where = ", ".join(f"{_fmt(fmap.load.values[fmap.row_col(c.index)[0]])}/"
+                                  f"{_fmt(fmap.rpm.values[fmap.row_col(c.index)[1]])}" for c in cells)
+                out.append(f"- {len(cells)} cell(s) {state} ({why}), load/rpm: {where}")
         if sat:
             out.append(f"- **{len(sat)} cell(s) hit an EGO correction limit** (marked `!`): the real error "
                        "is bigger than shown. Look at these first.")
@@ -100,7 +111,7 @@ def _cylinder_md(res: CylinderResult, changes: MapChanges | None, a: Analysis) -
             c = changes.cells.get(i)
             if c is None:
                 return ""
-            if c.state in (CHANGED, CAPPED):
+            if c.new != c.old:
                 return f"**{_fmt(c.new)}** ({_fmt(c.old)})"
             return _fmt(c.old)
         out += ["### New map (**new** (old) where it changes)", ""]
@@ -108,9 +119,32 @@ def _cylinder_md(res: CylinderResult, changes: MapChanges | None, a: Analysis) -
     return out
 
 
-def markdown(a: Analysis, changes: dict[str, MapChanges] | None, image: Path, out: Path | None) -> str:
+def _checks_md(checks: list[Check]) -> list[str]:
+    out = ["## Checks", "", "| Check | Result | Measured | Limit |", "|---|---|---|---|"]
+    for c in checks:
+        result = "pass" if c.passed else ("**accepted**" if c.accepted else "**FAIL**")
+        out.append(f"| `{c.name}` | {result} | {c.measured} | {c.limit} |")
+    out.append("")
+    failed = [c for c in checks if not c.passed]
+    out += [f"- `{c.name}`: {c.advice}" for c in failed]
+    return out + ([""] if failed else [])
+
+
+def markdown(a: Analysis, changes: dict[str, MapChanges] | None, checks: list[Check], image: Path,
+             out: Path | None, blocked: bool = False) -> str:
     s = a.settings
     lines = [f"# Fuel-map corrections: {a.ecm_id}", "", f"> **{TESTING_NOTE}**", ""]
+    failed = [c.name for c in checks if c.blocking]
+    accepted = [c.name for c in checks if c.accepted]
+    if blocked:
+        lines += [f"> **Not applied: check(s) failed: {', '.join(failed)}.** Nothing was written. See "
+                  "*Checks* below.", ""]
+    elif failed:
+        lines += [f"> **Check(s) failed: {', '.join(failed)}.** `apply` won't write an image until they "
+                  "pass or you accept them (`--accept`).", ""]
+    if accepted:
+        lines += [f"> **Overridden with --accept: {', '.join(accepted)}.** These checks failed and "
+                  "were accepted by the person running egotune.", ""]
     lines += [f"- Image: `{image}`"]
     if out:
         lines.append(f"- Result: `{out}`")
@@ -136,6 +170,7 @@ def markdown(a: Analysis, changes: dict[str, MapChanges] | None, image: Path, ou
                      "so the front/rear difference of the tune (the two maps and `Tab_CR_Front`) stays "
                      "as it is.")
     lines.append("")
+    lines += _checks_md(checks)
     if a.warnings:
         lines += ["## Warnings", ""] + [f"- {w}" for w in a.warnings] + [""]
     for key in ("rear", "front"):
@@ -150,7 +185,8 @@ def markdown(a: Analysis, changes: dict[str, MapChanges] | None, image: Path, ou
     return "\n".join(lines)
 
 
-def as_json(a: Analysis, changes: dict[str, MapChanges] | None, image: Path, out: Path | None) -> str:
+def as_json(a: Analysis, changes: dict[str, MapChanges] | None, checks: list[Check], image: Path,
+            out: Path | None) -> str:
     def cyl(res: CylinderResult):
         fmap = res.fuel_map
         return {
@@ -181,6 +217,7 @@ def as_json(a: Analysis, changes: dict[str, MapChanges] | None, image: Path, out
         "excluded": dict(a.excluded),
         "setup": a.setup,
         "warnings": a.warnings,
+        "checks": [{**asdict(c), "blocking": c.blocking} for c in checks],
         "cylinders": {k: cyl(r) for k, r in a.cylinders.items()},
         "changes": {k: [{"index": c.index, "old": c.old, "new": c.new, "state": c.state,
                          "saturated": c.saturated}

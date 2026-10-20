@@ -44,7 +44,12 @@ cell part of the way.
   change.
 - It only changes cells with **enough data**: at least 2 seconds.
 - It changes each cell **a little per round**: a third of the correction, at
-  most +6 % or −3 %. So expect a few rounds.
+  most +6 % or −3 %. So expect a few rounds. With your original tune as
+  `--baseline`, no cell ever moves more than ±15 % from it.
+- It **refuses to write a new image when the data looks wrong**: too short a
+  ride, a faulty O2 sensor, implausible readings, a correction that points to
+  a problem outside the maps, or the wrong image. See
+  [Checks](#checks).
 - **DDFI-2** has one O2 sensor, in the rear cylinder, and the ECM applies its
   correction to both cylinders. egotune does the same: both maps move by the
   same percentage. The front cylinder runs cooler (it gets the airflow first),
@@ -76,8 +81,9 @@ the image that was in the ECM while it was recorded.
 
 ### 1. Prepare the ECM
 
-1. **Save your current tune** (*Fetch*, then save the `.xpr`). It's your way
-   back.
+1. **Save your current tune** (*Fetch*, then save the `.xpr`), e.g. as
+   `original.xpr`. It's your way back, and egotune's `--baseline`: keep it
+   unchanged.
 2. **Lock the AFV at 100 %** in EcmDroid's *Setup*:
    - *AFV Settings*: *AFV (Rear)* and *AFV (Front)* to `100`;
    - *O2 Setup → AFV Settings*: *Maximum AFV (%)* and *Minimum AFV (%)* to
@@ -99,26 +105,28 @@ the image that was in the ECM while it was recorded.
 ### 3. Look at the corrections
 
 ```sh
-tools/egotune/egotune.py analyse --image iter0.xpr iter0-ride1.bin
+tools/egotune/egotune.py analyse --image iter0.xpr --baseline original.xpr iter0-ride1.bin
 ```
 
 This writes nothing. Read the report (see [Reading the report](#reading-the-report)).
-If it has warnings, sort them out first.
+If a check failed or there are warnings, sort them out first.
 
 ### 4. Make the new image
 
 ```sh
-tools/egotune/egotune.py apply --image iter0.xpr iter0-ride1.bin --out iter1.xpr -o iter1.md
+tools/egotune/egotune.py apply --image iter0.xpr --baseline original.xpr iter0-ride1.bin --out iter1.xpr -o iter1.md
 ```
 
-`iter1.md` is the report. Check the new map grids: large or isolated changes
+If a check fails, nothing is written and `iter1.md` says why. `iter1.md` is
+the report. Check the new map grids: large or isolated changes
 usually mean bad data, not a bad map. `calconv diff iter0.xpr iter1.xpr` lists
 exactly what changed.
 
 ### 5. Burn and repeat
 
 Burn `iter1.xpr` with EcmDroid, *Fetch* and save it again, ride, and run
-egotune on the new image and the new log. Stop when the report says every
+egotune on the new image and the new log, always with the same
+`--baseline original.xpr`. Stop when the report says every
 cell with enough data is within ±2 %, or when cells keep going back and forth
 between rounds.
 
@@ -128,10 +136,33 @@ Restore the original AFV limits (step 1) so the ECM can adapt again. Ride for a
 while and check the learned AFV now and then (*Data Channels*). If the maps are
 good, it stays close to 100 %.
 
+## Checks
+
+Before it writes anything, egotune checks the data as a whole. If a check
+fails, `apply` writes nothing. The report lists every check with what it
+measured and the limit, and for each failed one what usually causes it:
+
+| Check | Fails when | What to do |
+|---|---|---|
+| `short-log` | less than 5 minutes of usable data | Ride longer after a full warm-up, with steady throttle in closed loop. Several logs can be combined. |
+| `slow-interval` | records more than 0.5 s apart | Record with *No Delay* or 250 ms. |
+| `o2-switching` | the O2 sensor hardly switches between rich and lean | Check the sensor: it may be worn, contaminated or disconnected, or its heater may have failed. |
+| `ego-limit` | the EGO correction sits at its limit too often | The mixture is far off or the sensor reads wrong. Look for exhaust leaks, a faulty sensor or a wrong base map. |
+| `implausible` | readings out of range or jumping faster than an engine can | Check the sensors, the wiring and the adapter connection. |
+| `global-offset` | nearly the whole map is off in the same direction by more than 6 % | Look for a cause outside the maps first: an exhaust leak before the O2 sensor (reads falsely lean, common on Buells), fuel pressure, a vacuum leak, a fuel change, an unlocked AFV. |
+| `lookup` | egotune's map lookup doesn't match what the ECM logged | Use the image that was in the ECM during the ride (saved right after the last burn). On DDFI-3 this check isn't confirmed yet. |
+| `baseline` | a cell wants to move more than ±15 % from your original tune | A drift that large usually has a cause outside the maps. |
+
+When you've found that a failed check doesn't apply to you, you can let
+`apply` go ahead with `--accept NAME`, e.g. `--accept global-offset` after
+you've ruled out an exhaust leak. The report then says so at the top. Don't
+accept `o2-switching`, `ego-limit` or `implausible`: they mean the data
+can't be trusted. Fix the cause and record again.
+
 ## Reading the report
 
 The top lists the files, how many records were used, and why the others were
-left out. Then, per cylinder:
+left out, then the checks. Then, per cylinder:
 
 - **Correction the ECM needed**: the mean correction per cell, in %. A
   positive value means the cell is lean and gets more fuel. Values in
@@ -139,17 +170,20 @@ left out. Then, per cylinder:
   the EGO correction sat at its limit: the real error is bigger than shown.
 - **Data**: the seconds of data per cell.
 - **New map**: the map after this round. Changed cells show **new** (old).
+  The summary above the grids lists the cells that were left alone:
+  *outlier* (far from its neighbours: real maps change smoothly), *noisy*
+  (the correction jumps around within the cell) and *baseline limit*.
 
 Warnings and what to do about them:
 
 | Warning | What to do |
 |---|---|
-| The lookup check has a large spread, or the image stores a different AFV and asks whether it was in the ECM | You probably used the wrong image. Use the one you saved right after the last burn. |
+| The image stores a different AFV and asks whether it was in the ECM | You probably used the wrong image. Use the one you saved right after the last burn. |
 | The image stores a different AFV, and the maps match the log | The AFV changed after you saved the image: it isn't locked. Lock it (step 1). |
 | The AFV wasn't locked | egotune takes it into account, but lock it (step 1) for cleaner data. |
 | The image's AFV limits aren't locked at 100 % | Same as above. |
 | Front map left unchanged (DDFI-3) | Your ECM has no front closed loop. Only the rear map is tuned. |
-| No record passed the filters | The engine wasn't warm, or never steady in closed loop. Ride longer after a full warm-up. |
+| No `--baseline` given | Pass your original tune with `--baseline`, so the total change stays limited. |
 
 ## Settings
 
@@ -164,6 +198,9 @@ The defaults follow the method. Change them only if you know why:
 | `--min-te` | 71 | warm engine from, in °C |
 | `--settle` | 1 | seconds skipped after a throttle or RPM change |
 | `--cylinders` | both | `front` or `rear` to tune just one map |
+| `--baseline` | none | your original tune: no cell moves further from it than `--max-from-baseline` |
+| `--max-from-baseline` | 15 | in % |
+| `--accept` | none | let `apply` go ahead although a named check fails (see [Checks](#checks)) |
 
 Raising the caps makes each round bigger, and a lean mistake is the dangerous
 one.

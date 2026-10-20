@@ -42,9 +42,10 @@ from .fuelmap import FuelMap, load_fuel_map
 from .runtime import BinLog, RuntimeDefs
 
 # Flags1 bits (table bits): 0 Engine Running, 2 Acceleration, 3 Deceleration, 5 WOT
-# Flags2 bit 7: Closed Loop
+# Flags2 bits: 6 O2 Rich Voltage, 7 Closed Loop
 RUNNING, ACCEL, DECEL, WOT = 0, 2, 3, 5
 CLOSED_LOOP = 7
+O2_RICH = 6  # Flags2: O2 Rich Voltage
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ REQUIRED = ("RPM", "TE", "CrTE", "CrAcc", "Flags1", "Flags2")
 
 # Reasons a record isn't used, in the order they're checked.
 REASONS = (
+    "implausible reading",
     "engine not running",
     "open loop",
     "cold engine",
@@ -100,6 +102,19 @@ class Settings:
     max_lean: float = 3.0  # % a cell may lose per iteration
     saturated: float = 0.2  # share of a cell's data at an EGO limit that flags it
     converged: float = 2.0  # % within which every trusted cell counts as done
+    # Per-cell limits (tune.py)
+    outlier: float = 8.0  # points a cell may differ from its trusted neighbours
+    max_cell_std: float = 10.0  # % spread within a cell before it counts as noisy
+    max_from_baseline: float = 15.0  # % a cell may move away from the --baseline image
+    # Checks that block apply (checks.py); the healthy BUEIB ride is well inside all of them
+    min_usable_minutes: float = 5.0  # warm, steady, closed-loop data
+    max_interval: float = 0.5  # s, typical time between records
+    min_o2_switching: float = 0.5  # rich/lean switches per second (BUEIB ride: 2.2)
+    max_ego_limit: float = 5.0  # % of the data with the EGO correction at a limit
+    max_implausible: float = 1.0  # % of the records with implausible readings
+    offset_mean: float = 6.0  # % mean correction that, together with...
+    offset_share: float = 0.85  # ...this share of the data in one direction, is a global offset
+    max_lookup_spread: float = 0.05  # spread of logged table fuel / map lookup
 
 
 @dataclass
@@ -191,6 +206,39 @@ class Analysis:
     setup: dict[str, float | None]
     warnings: list[str]
     shared_feedback: bool = False  # one O2 sensor for both maps (DDFI-2)
+    usable_seconds: float = 0.0  # time covered by the used records
+    interval: float = 0.0  # typical time between records (the slowest log)
+    o2_seconds: float = 0.0  # warm closed-loop time the O2 switching was watched over
+    o2_switches: int = 0  # rich/lean switches of the (rear) O2 sensor in that time
+
+
+# Physical ranges a running engine stays within, and how fast a value can change.
+# A reading outside them comes from a faulty sensor or a corrupted record.
+PLAUSIBLE = {
+    "RPM": (0.0, 9500.0),
+    "TE": (-30.0, 300.0),
+    "FBFuel": (40.0, 250.0),
+    "FBFuel1": (40.0, 250.0),
+    "LFuel_LD": (40.0, 250.0),
+    "LFuel1_LD": (40.0, 250.0),
+}
+MAX_RATE = {"RPM": 20000.0, "TE": 20.0}  # per second
+
+
+def implausible(defs: RuntimeDefs, frame: bytes, prev: bytes | None, dt: float) -> str | None:
+    """The first implausible channel of a record, or None."""
+    rpm = defs.value(frame, "RPM")
+    running = defs.bit(frame, "Flags1", RUNNING) and rpm >= 500
+    for name, (lo, hi) in PLAUSIBLE.items():
+        if not defs.has(name) or (name != "RPM" and not running):
+            continue
+        if not lo <= defs.value(frame, name) <= hi:
+            return name
+    if prev is not None and 0.05 <= dt <= 1.0:
+        for name, rate in MAX_RATE.items():
+            if abs(defs.value(frame, name) - defs.value(prev, name)) / dt > rate:
+                return name
+    return None
 
 
 def image_setup(img: Image) -> dict[str, float | None]:
@@ -229,18 +277,26 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
     afv_seen = {k: [] for k in cylinders}
     ratios = {k: [] for k in cylinders}
     total = used = 0
+    usable_seconds = interval = o2_seconds = 0.0
+    o2_switches = 0
 
     for log in logs:
         prev = None
+        prev_cl = None  # the last warm closed-loop record, for the O2 switching
         last_event = -math.inf
         times = [r.time for r in log.records]
         steps = sorted(b - a for a, b in zip(times, times[1:]) if b > a)
         typical = steps[len(steps) // 2] if steps else 0.2
+        interval = max(interval, typical)
         for rec in log.records:
             total += 1
             f, t = rec.frame, rec.time
             rpm = defs.value(f, "RPM")
             dt = typical if prev is None else t - prev.time
+            if implausible(defs, f, prev.frame if prev else None, dt):
+                excluded["implausible reading"] += 1
+                last_event = t
+                continue  # and don't compare the next record with this one
             # Transient: a jump in RPM or load, or a gap in the log.
             if prev is None or dt <= 0 or dt > settings.max_gap:
                 last_event = t
@@ -270,6 +326,16 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
             if not closed or enrich:
                 last_event = t  # also restarts the settle time when closed loop begins
 
+            # A working narrowband sensor keeps switching between rich and lean in closed loop.
+            if running and closed and defs.value(f, "TE") >= settings.min_te:
+                if prev_cl is not None and 0 < t - prev_cl.time <= settings.max_gap:
+                    o2_seconds += t - prev_cl.time
+                    if defs.bit(f, "Flags2", O2_RICH) != defs.bit(prev_cl.frame, "Flags2", O2_RICH):
+                        o2_switches += 1
+                prev_cl = rec
+            else:
+                prev_cl = None
+
             if not running:
                 excluded["engine not running"] += 1
             elif not closed or defs.bit(f, "Flags1", WOT):
@@ -284,6 +350,7 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
                 excluded["transient"] += 1
             else:
                 used += 1
+                usable_seconds += weight
                 egos = {}
                 for key in cylinders:
                     cyl = cyls[key]
@@ -338,18 +405,11 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
             else:
                 warnings.append(f"{key}: the image stores an AFV of {res.image_afv:.1f} %, the log shows "
                                 f"{lo_hi[0]:.1f} %. Was this image in the ECM during the ride?")
-        lk = res.lookup
-        if lk.spread is not None and lk.spread > 0.05:
-            warnings.append(f"{key}: the map lookup doesn't follow the ECM's logged table fuel value "
-                            f"(spread {100 * lk.spread:.0f} %). Either the image isn't the one that was "
-                            "in the ECM during the ride, or the lookup model needs work. Check before burning.")
     if setup["KLFuel_Max"] is not None and (setup["KLFuel_Max"] != 100 or setup["KLFuel_Min"] != 100):
         warnings.append(f"The image's AFV limits are {setup['KLFuel_Min']:g}-{setup['KLFuel_Max']:g} %, "
                         "not locked at 100 %.")
-    if total and not used:
-        warnings.append("No record passed the filters: nothing to tune from. "
-                        "Ride longer with a warm engine in closed loop.")
 
     summaries = [LogSummary(log.name, log.ecm_id, len(log.records), log.bad_checksum, log.duration)
                  for log in logs]
-    return Analysis(img.ecm_id, settings, summaries, total, used, excluded, results, setup, warnings, shared)
+    return Analysis(img.ecm_id, settings, summaries, total, used, excluded, results, setup, warnings, shared,
+                    usable_seconds, interval, o2_seconds, o2_switches)
