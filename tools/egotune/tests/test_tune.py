@@ -62,7 +62,7 @@ class TuneTest(unittest.TestCase):
 
     def test_too_little_data(self):
         s = Settings(settle=0.0)
-        a, ch = self.run_tune(wobble(1, 110), s)
+        a, ch = self.run_tune(wobble(4, 110), s)  # under the 5 s a cell needs by default
         c = ch["rear"].cells[self.cell(a.cylinders["rear"].fuel_map)]
         self.assertEqual((c.new, c.state), (45, FEW_DATA))
 
@@ -91,24 +91,48 @@ class TuneTest(unittest.TestCase):
         a, _ = self.run_tune(frames, s)
         self.assertEqual(a.excluded["transient"], 5 + 1 + 5)  # first second, the jump, and back
 
-    def test_afv_is_part_of_the_correction(self):
-        a, _ = self.run_tune([frame(FBFuel=100, LFuel_LD=105, FBFuel1=100 + i % 5) for i in range(100)])
+    def test_afv_isnt_part_of_the_correction(self):
+        # In closed loop the ECM applies the EGO correction, not the AFV (analysis.py).
+        a, _ = self.run_tune([frame(FBFuel=106, LFuel_LD=100 + i / 25, FBFuel1=106 + i % 5)
+                              for i in range(100)])
         rear = a.cylinders["rear"]
-        self.assertAlmostEqual(rear.cells[self.cell(rear.fuel_map)].mean, 105.0)
-        self.assertTrue(any("AFV wasn't locked" in w for w in a.warnings))
+        self.assertAlmostEqual(rear.cells[self.cell(rear.fuel_map)].mean, 106.0)
+        self.assertEqual((rear.afv_first, round(rear.afv_last, 1)), (100.0, 104.0))
+        self.assertFalse(rear.afv_stable(a.settings))  # it moved by more than 2 %
 
-    def test_front_without_feedback_unchanged(self):
+    def test_front_without_feedback_follows_rear(self):
         a, ch = self.run_tune(steady(20, FBFuel=110, FBFuel1=100))
+        front = a.cylinders["front"]
+        self.assertTrue(front.active)
+        self.assertEqual(front.follows, "rear")
+        self.assertIn("doesn't move", front.inactive_reason)
+        i = self.cell(front.fuel_map)
+        self.assertIs(front.cells, a.cylinders["rear"].cells)
+        self.assertEqual([c.index for c in ch["front"].changed], [i])
+        self.assertTrue(any("follows the rear" in w for w in a.warnings))
+
+    def test_front_without_feedback_alone_unchanged(self):
+        a = analyse(image(), defs(), [make_log(steady(20, FBFuel=110, FBFuel1=100))], cylinders=("front",))
+        ch = propose_all(a)
         self.assertFalse(a.cylinders["front"].active)
         self.assertEqual(ch["front"].changed, [])
         self.assertTrue(all(c.state == INACTIVE for c in ch["front"].cells.values()))
-        self.assertTrue(ch["rear"].changed)
 
-    def test_front_copying_rear_unchanged(self):
+    def test_front_copying_rear_follows_it(self):
         frames = [frame(FBFuel=100 + i % 7, FBFuel1=100 + i % 7) for i in range(100)]
         a, _ = self.run_tune(frames)
-        self.assertFalse(a.cylinders["front"].active)
+        self.assertEqual(a.cylinders["front"].follows, "rear")
         self.assertIn("copy of the rear", a.cylinders["front"].inactive_reason)
+
+    def test_warm_from_the_images_learning_temperature(self):
+        a, _ = self.run_tune(wobble(20, 106, TE=120.0))
+        self.assertEqual(a.settings.min_te, 130)  # KLCL_Min_TE of the test image
+        self.assertIn("KLCL_Min_TE", a.min_te_source)
+        self.assertEqual(a.used, 0)
+        self.assertGreater(a.excluded["cold engine"], 0)
+        a, _ = self.run_tune(wobble(20, 106, TE=120.0), Settings(min_te=100.0))
+        self.assertGreater(a.used, 0)
+        self.assertEqual(a.min_te_source, "--min-te")
 
     def test_saturation_flagged(self):
         a, ch = self.run_tune(wobble(20, 200))  # KFBFuel_Max in the test image
@@ -127,6 +151,36 @@ class TuneTest(unittest.TestCase):
         front, rear = img.start(img.var("Tab_Fuel_Front")), img.start(img.var("Tab_Fuel_Rear"))
         self.assertEqual(diffs, [front + cell, rear + cell])  # front EGO averages 106 % too
         self.assertEqual(out[rear + cell], 46)
+
+    def test_fuel_equation_without_afv_in_closed_loop(self):
+        """In the BUE2D log the front AFV is 95 %, the rear one 100 %. Pulse width = k x table fuel
+        x CrTA x CrTE (x CrFP, front) x EGO in closed loop, x CrOL x AFV in open loop, + CrBat: the
+        same k fits both cylinders in both loops. EGO x AFV in closed loop would be 5 % off."""
+        d = defs()
+        v = d.value
+        log = parse_log(BUE2D_LOG.read_bytes(), d.frame_len)
+        ks = {}
+        for rec in log.records:
+            f = rec.frame
+            if not d.bit(f, "Flags1", 0) or v(f, "RPM") < 500:
+                continue
+            if v(f, "CrAcc") > 0 or any(v(f, n) != 100 for n in ("CrDec", "CrWOT", "CrIdle")):
+                continue
+            closed = d.bit(f, "Flags2", 7)
+            for cyl, pw, tab, ego, afv, fp in (("front", "Fuel1", "TabFuel1", "FBFuel1", "LFuel1_LD", "CrFP"),
+                                               ("rear", "Fuel2", "TabFuel2", "FBFuel", "LFuel_LD", None)):
+                width = v(f, pw) - v(f, "CrBat")
+                if width <= 0.3 or v(f, tab) <= 0:
+                    continue
+                base = v(f, tab) * v(f, "CrTA") * v(f, "CrTE") * (v(f, fp) / 100 if fp else 1) / 1e4
+                corr = v(f, ego) if closed else v(f, "CrOL") * v(f, afv) / 100
+                ks.setdefault((cyl, closed), []).append(width / (base * corr / 100))
+        self.assertEqual({round(v(r.frame, "LFuel1_LD"), 1) for r in log.records}, {95.0})
+        medians = {key: sorted(x)[len(x) // 2] for key, x in ks.items()}
+        self.assertEqual(len(medians), 4)
+        ref = medians[("rear", True)]
+        for key, k in medians.items():
+            self.assertAlmostEqual(k / ref, 1.0, delta=0.005, msg=key)
 
     def test_cold_fixture_log_has_no_usable_data(self):
         log = parse_log(BUE2D_LOG.read_bytes(), defs().frame_len)

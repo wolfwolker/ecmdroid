@@ -14,27 +14,37 @@
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 """From logs to per-cell corrections (docs/egotune-howto.md).
 
-Every record goes through the same filters as the manual method, plus a few
-the manual method can't do in MegaLogViewer: it must be closed loop, warm,
-without warm-up/acceleration/deceleration enrichment, and steady for a moment.
-The correction the ECM needed is EGO x AFV / 100 (100 % = the map is right);
-with the AFV locked at 100 % that's simply the EGO correction. Each record is
-spread over the four cells around its operating point with the same bilinear
-weights the ECM uses to read the map, and weighted by the time it covers.
+Every record goes through the same filters as the manual method: it must be
+closed loop, warm (at the image's own AFV-learning temperature, KLCL_Min_TE,
+unless --min-te says otherwise), without warm-up/acceleration/deceleration
+enrichment, and steady for a moment. The correction the ECM needed is the
+EGO correction alone (100 % = the map is right): in closed loop the ECM
+applies the EGO correction, and in open loop the AFV instead of it. The
+logged injector pulse width confirms this on both test logs: on BUEIB (DDFI-2)
+and on BUE2D (DDFI-3, front AFV 95 %), pulse width - battery correction =
+k x table fuel x air-temperature x engine-temperature (x front, on the front
+cylinder) corrections x EGO in closed loop, x open-loop correction x AFV in
+open loop, with the same k everywhere (within 0.5 %); EGO x AFV in closed loop
+is 5 % off on the BUE2D front cylinder. So the AFV doesn't have to be locked.
+Each record is spread over the four cells around its operating point with the
+same bilinear weights the ECM uses to read the map, and weighted by the time
+it covers.
 
 DDFI-3 has a load, an EGO correction and an AFV per cylinder. DDFI-2 has one
 of each: one O2 sensor (in the rear cylinder) whose correction the ECM
 applies to both cylinders. Its correction goes into both maps, which keeps
 the front/rear difference the tune already has (the two maps and
 Tab_CR_Front, the front correction over engine temperature, which the ECM
-applies after the map lookup).
+applies after the map lookup). A DDFI-3 without front closed loop is treated
+the same way: the front map follows the rear correction cell by cell (the
+"locked percentage" of ECMSpy Mono). Both maps share their axes.
 """
 
 from __future__ import annotations
 
 import math
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from calconvlib.image import Image
 
@@ -87,16 +97,21 @@ REASONS = (
 )
 
 
+FALLBACK_MIN_TE = 130.0  # °C, KLCL_Min_TE of the test images, for an image without it
+
+
 @dataclass
 class Settings:
-    min_te: float = 71.0  # °C (160 °F, as in the manual method)
+    min_te: float | None = None  # °C; None: the image's KLCL_Min_TE (Calibration Mode Minimum Engine Temperature)
     max_warmup: float = 0.5  # % of warm-up enrichment (CrTE above 100 %) still accepted
     settle: float = 1.0  # s to skip after a transient or enrichment event
     rpm_rate: float = 1500.0  # rpm/s counted as a transient
     load_rate: float = 40.0  # load units/s counted as a transient
     max_gap: float = 1.0  # s between records counted as a gap (a transient)
-    min_seconds: float = 2.0  # data a cell needs before it's changed
-    full_seconds: float = 10.0  # data at which a cell gets the full gain
+    # ECMSpy Mono asks for more than 100 hits per cell, about 17 s at No Delay. A cell
+    # changes from min_seconds, with the change scaled down until full_seconds.
+    min_seconds: float = 5.0  # data a cell needs before it's changed
+    full_seconds: float = 17.0  # data at which a cell gets the full gain
     gain: float = 1 / 3  # part of the correction applied per iteration
     max_rich: float = 6.0  # % a cell may gain per iteration
     max_lean: float = 3.0  # % a cell may lose per iteration
@@ -174,7 +189,10 @@ class CylinderResult:
     used: int = 0
     active: bool = True
     inactive_reason: str | None = None
+    follows: str | None = None  # "rear": no own feedback, the cells are the rear cylinder's
     afv_range: tuple[float, float] | None = None  # live AFV while the engine ran
+    afv_first: float | None = None  # ...at the first and the last running record
+    afv_last: float | None = None
     image_afv: float | None = None
     lookup: LookupCheck = field(default_factory=LookupCheck)
 
@@ -183,6 +201,11 @@ class CylinderResult:
 
     def trusted(self, settings: Settings) -> list[int]:
         return [i for i, s in self.cells.items() if s.seconds >= settings.min_seconds]
+
+    def afv_stable(self, settings: Settings) -> bool:
+        """The AFV moved less than `converged` points during the ride (always true when it's locked).
+        Where it settles doesn't matter for the corrections: ideally at 100 % after fold-afv."""
+        return self.afv_range is None or self.afv_range[1] - self.afv_range[0] <= settings.converged
 
 
 @dataclass
@@ -206,6 +229,7 @@ class Analysis:
     setup: dict[str, float | None]
     warnings: list[str]
     shared_feedback: bool = False  # one O2 sensor for both maps (DDFI-2)
+    min_te_source: str = ""  # where settings.min_te comes from
     usable_seconds: float = 0.0  # time covered by the used records
     interval: float = 0.0  # typical time between records (the slowest log)
     o2_seconds: float = 0.0  # warm closed-loop time the O2 switching was watched over
@@ -242,7 +266,7 @@ def implausible(defs: RuntimeDefs, frame: bytes, prev: bytes | None, dt: float) 
 
 
 def image_setup(img: Image) -> dict[str, float | None]:
-    names = ("LFuel", "LFuel1", "KLFuel_Max", "KLFuel_Min", "KFBFuel_Max", "KFBFuel_Min")
+    names = ("LFuel", "LFuel1", "KLFuel_Max", "KLFuel_Min", "KFBFuel_Max", "KFBFuel_Min", "KLCL_Min_TE")
     return {n: img.value_of(n) if img.var(n) else None for n in names}
 
 
@@ -267,6 +291,14 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
         raise ValueError(f"{defs.ecm_id}: runtime channels missing in the database: {', '.join(missing)}")
 
     setup = image_setup(img)
+    if settings.min_te is not None:
+        min_te_source = "--min-te"
+    elif setup["KLCL_Min_TE"] is not None:
+        settings = replace(settings, min_te=setup["KLCL_Min_TE"])
+        min_te_source = "the image's AFV learning temperature, KLCL_Min_TE"
+    else:
+        settings = replace(settings, min_te=FALLBACK_MIN_TE)
+        min_te_source = "a default: the image has no KLCL_Min_TE"
     ego_max, ego_min = setup["KFBFuel_Max"], setup["KFBFuel_Min"]
     results = {k: CylinderResult(cyls[k], load_fuel_map(img, cyls[k].map_name)) for k in cylinders}
     for res in results.values():
@@ -354,17 +386,15 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
                 egos = {}
                 for key in cylinders:
                     cyl = cyls[key]
-                    ego = defs.value(f, cyl.ego)
-                    afv = defs.value(f, cyl.afv)
+                    ego = defs.value(f, cyl.ego)  # in closed loop the whole correction: the AFV isn't applied
                     egos[key] = ego
                     ego_values[key][round(ego, 1)] += 1
-                    correction = ego * afv / 100.0
                     rich = ego_max is not None and ego >= ego_max - 0.5
                     lean = ego_min is not None and ego <= ego_min + 0.5
                     res = results[key]
                     for idx, w in res.fuel_map.cell_weights(rpm, defs.value(f, cyl.load)):
                         if w > 0:
-                            res.cells.setdefault(idx, CellStat()).add(w * weight, correction, rich, lean)
+                            res.cells.setdefault(idx, CellStat()).add(w * weight, ego, rich, lean)
                     res.used += 1
                 if "front" in egos and "rear" in egos and abs(egos["front"] - egos["rear"]) < 0.05:
                     same_as_rear += 1
@@ -373,6 +403,7 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
     for key, res in results.items():
         if afv_seen[key]:
             res.afv_range = (min(afv_seen[key]), max(afv_seen[key]))
+            res.afv_first, res.afv_last = afv_seen[key][0], afv_seen[key][-1]
         if ratios[key]:
             median, spread = _robust(ratios[key])
             res.lookup = LookupCheck(len(ratios[key]), math.exp(median), spread)
@@ -380,36 +411,33 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
         front = results["front"]
         moving = len(ego_values["front"]) > 3
         if not moving:
-            front.active = False
             front.inactive_reason = ("the front EGO correction doesn't move: the ECM doesn't run "
                                      "closed loop on the front cylinder")
         elif "rear" in results and same_as_rear >= 0.95 * used:
-            front.active = False
             front.inactive_reason = ("the front EGO correction is a copy of the rear one: "
-                                     "there's no front O2 feedback to tune from")
+                                     "there's no front O2 feedback of its own")
+        if front.inactive_reason and "rear" in results:
+            # One sensor: the front map changes by the rear cell's percentage, as on DDFI-2.
+            front.follows = "rear"
+            front.cells, front.used = results["rear"].cells, results["rear"].used
+        elif front.inactive_reason:
+            front.active = False
     for key, res in results.items():
-        if not res.active:
+        if res.follows:
+            warnings.append(f"{key}: {res.inactive_reason}. The {key} map follows the {res.follows} "
+                            f"correction cell by cell (ECMSpy Mono's \"locked percentage\"). Use "
+                            f"--cylinders {res.follows} to leave it unchanged.")
+        elif not res.active:
             warnings.append(f"{key}: map left unchanged, {res.inactive_reason}.")
-        # With one AFV for both maps, warn about it once.
+        # A constant AFV that isn't the stored one: maybe not the image that was in the ECM.
         lo_hi = None if shared and key == "front" and "rear" in results else res.afv_range
-        if lo_hi and (abs(lo_hi[0] - 100) > 0.05 or abs(lo_hi[1] - 100) > 0.05):
-            warnings.append(f"{key}: the AFV wasn't locked at 100 % during the ride "
-                            f"({lo_hi[0]:.1f}-{lo_hi[1]:.1f} %). The corrections include it, "
-                            "but lock it for cleaner data (docs/egotune-howto.md, step 1).")
         if lo_hi and res.image_afv is not None and abs(res.image_afv - lo_hi[0]) > 0.5 \
-                and abs(lo_hi[1] - lo_hi[0]) <= 0.5:
-            if res.lookup.spread is not None and res.lookup.spread < 0.01:
-                warnings.append(f"{key}: the image stores an AFV of {res.image_afv:.1f} %, the log shows "
-                                f"{lo_hi[0]:.1f} %. The maps match the log, so the AFV changed since the "
-                                "image was saved: lock it (docs/egotune-howto.md, step 1).")
-            else:
-                warnings.append(f"{key}: the image stores an AFV of {res.image_afv:.1f} %, the log shows "
-                                f"{lo_hi[0]:.1f} %. Was this image in the ECM during the ride?")
-    if setup["KLFuel_Max"] is not None and (setup["KLFuel_Max"] != 100 or setup["KLFuel_Min"] != 100):
-        warnings.append(f"The image's AFV limits are {setup['KLFuel_Min']:g}-{setup['KLFuel_Max']:g} %, "
-                        "not locked at 100 %.")
+                and abs(lo_hi[1] - lo_hi[0]) <= 0.5 \
+                and not (res.lookup.spread is not None and res.lookup.spread < 0.01):
+            warnings.append(f"{key}: the image stores an AFV of {res.image_afv:.1f} %, the log shows "
+                            f"{lo_hi[0]:.1f} %. Was this image in the ECM during the ride?")
 
     summaries = [LogSummary(log.name, log.ecm_id, len(log.records), log.bad_checksum, log.duration)
                  for log in logs]
     return Analysis(img.ecm_id, settings, summaries, total, used, excluded, results, setup, warnings, shared,
-                    usable_seconds, interval, o2_seconds, o2_switches)
+                    min_te_source, usable_seconds, interval, o2_seconds, o2_switches)

@@ -73,9 +73,11 @@ def run_checks(a: Analysis, changes: dict[str, MapChanges], accept: tuple[str, .
         out.append(Check("o2-switching", False, f"{a.o2_seconds:.0f} s of warm closed loop", "≥ 60 s",
                          "Not enough warm closed-loop data to tell whether the O2 sensor works."))
 
-    active = sorted((r for r in a.cylinders.values() if r.active), key=lambda r: r.cylinder.key != "rear")
+    # Each sensor's data once: a map that follows the rear one, or DDFI-2's shared sensor, adds nothing.
+    active = sorted((r for r in a.cylinders.values() if r.active and not r.follows),
+                    key=lambda r: r.cylinder.key != "rear")
     if a.shared_feedback:
-        active = active[:1]  # the same (rear) sensor and data for both maps
+        active = active[:1]
     seconds = sum(c.seconds for r in active for c in r.cells.values())
     at_limit = sum(c.sat_rich + c.sat_lean for r in active for c in r.cells.values())
     share = 100 * at_limit / seconds if seconds else 0.0
@@ -108,8 +110,8 @@ def run_checks(a: Analysis, changes: dict[str, MapChanges], accept: tuple[str, .
                          f"not > {s.offset_mean:g} % with ≥ {100 * s.offset_share:.0f} % the same way",
                          "Nearly the whole map is off in the same direction. That usually has a cause "
                          "outside the maps: an exhaust leak before the O2 sensor (reads falsely lean), fuel "
-                         "pressure, a vacuum leak, a fuel change, or an AFV that wasn't locked. Find it "
-                         "first; tuning the maps would hide it."))
+                         "pressure, a vacuum leak or a fuel change. Find it first (docs/egotune-howto.md, *Before "
+                         "you start*); tuning the maps would hide it."))
     else:
         out.append(Check("global-offset", True, "no cell with enough data", "", ""))
 

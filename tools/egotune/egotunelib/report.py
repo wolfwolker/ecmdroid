@@ -49,22 +49,36 @@ def _cylinder_md(res: CylinderResult, changes: MapChanges | None, a: Analysis) -
     key = res.cylinder.key
     s = a.settings
     out = [f"## {key.capitalize()} cylinder (`{res.cylinder.map_name}`)", ""]
-    if not res.active:
+    if res.follows:
+        out += [f"Follows the {res.follows} correction cell by cell: {res.inactive_reason}. The grids "
+                f"below are the {res.follows} cylinder's data.", ""]
+    elif not res.active:
         out += [f"Left unchanged: {res.inactive_reason}.", ""]
     trusted = res.trusted(s)
+    stable = res.afv_stable(s)
     if trusted:
         devs = [abs(res.cells[i].mean - 100) for i in trusted]
         weight = sum(res.cells[i].seconds for i in trusted)
         mean_dev = sum(abs(res.cells[i].mean - 100) * res.cells[i].seconds for i in trusted) / weight
-        done = max(devs) <= s.converged
+        done = ""
+        if max(devs) <= s.converged:
+            done = (f" — every trusted cell is within ±{_fmt(s.converged)} %"
+                    + (": this region is done." if stable else ", but the AFV isn't stable yet (below)."))
         out += [f"- Cells with at least {_fmt(s.min_seconds)} s of data: **{len(trusted)}**",
-                f"- Mean deviation from 100 %: **{mean_dev:.1f} %**, largest **{max(devs):.1f} %**"
-                + (f" — every trusted cell is within ±{_fmt(s.converged)} %: this region is done."
-                   if done else "")]
+                f"- Mean deviation from 100 %: **{mean_dev:.1f} %**, largest **{max(devs):.1f} %**" + done]
     else:
         out.append("- No cell has enough data.")
     if res.afv_range:
-        out.append(f"- AFV during the ride: {res.afv_range[0]:.1f}–{res.afv_range[1]:.1f} %")
+        lo, hi = res.afv_range
+        if hi - lo <= 0.05:
+            out.append(f"- AFV during the ride: {lo:.1f} % throughout"
+                       + ("" if abs(lo - 100) <= s.converged else
+                          ". Fold it into the maps (`egotune fold-afv`) so it starts from 100 %."))
+        else:
+            out.append(f"- AFV during the ride: {res.afv_first:.1f} % at the start, {res.afv_last:.1f} % at the "
+                       f"end ({lo:.1f}–{hi:.1f} %)"
+                       + ("" if stable else f". It moved more than {_fmt(s.converged)} %: the closed-loop "
+                          "area is still off on average, or the altitude or weather changed."))
     lk = res.lookup
     if lk.spread is not None:
         out.append(f"- Lookup check: {lk.samples} records, logged table fuel / map lookup = "
@@ -104,7 +118,9 @@ def _cylinder_md(res: CylinderResult, changes: MapChanges | None, a: Analysis) -
         return out
     out += [f"### Correction the ECM needed (%, _italic_ = under {_fmt(s.min_seconds)} s of data)", ""]
     out += _grid(res, corr) + [""]
-    out += ["### Data (seconds)", ""]
+    per_record = a.interval or 0.2
+    out += [f"### Data (seconds; {_fmt(s.full_seconds)} s ≈ {s.full_seconds / per_record:.0f} records at "
+            f"{per_record:.2f} s per record)", ""]
     out += _grid(res, lambda i: f"{res.cells[i].seconds:.1f}" if i in res.cells and res.cells[i].seconds >= 0.05 else "") + [""]
     if changes:
         def new(i):
@@ -155,9 +171,11 @@ def markdown(a: Analysis, changes: dict[str, MapChanges] | None, checks: list[Ch
     lines.append(f"- Records used: **{a.used}** of {a.records}")
     if a.excluded:
         lines.append("- Left out: " + ", ".join(f"{a.excluded[r]} {r}" for r in REASONS if a.excluded[r]))
-    lines.append(f"- Settings: gain {s.gain:.2f}, full gain from {_fmt(s.full_seconds)} s of data, "
-                 f"cap +{_fmt(s.max_rich)} % / −{_fmt(s.max_lean)} % per iteration, warm from "
-                 f"{_fmt(s.min_te)} °C, settle {_fmt(s.settle)} s")
+    lines.append(f"- Settings: gain {s.gain:.2f}, cells change from {_fmt(s.min_seconds)} s of data with "
+                 f"the full gain from {_fmt(s.full_seconds)} s, cap +{_fmt(s.max_rich)} % / "
+                 f"−{_fmt(s.max_lean)} % per iteration, settle {_fmt(s.settle)} s")
+    lines.append(f"- Warm engine from **{_fmt(s.min_te)} °C** ({a.min_te_source}), with no warm-up "
+                 "enrichment left")
     setup = a.setup
     if setup.get("KLFuel_Max") is not None:
         afv = (f"AFV {setup['LFuel']:g} %" if setup.get("LFuel1") is None
@@ -179,9 +197,9 @@ def markdown(a: Analysis, changes: dict[str, MapChanges] | None, checks: list[Ch
     lines += ["## Next steps", "",
               "1. Look at the grids: large or isolated changes usually mean bad data, not a bad map.",
               "2. Compare the result with your image: `calconv diff <image> <result>` lists exactly what changed.",
-              "3. Burn the result with EcmDroid, ride again with the AFV locked, and run egotune on the new "
+              "3. Burn the result with EcmDroid, *Fetch* and save it, ride again, and run egotune on the new "
               "image and the new log. Stop when every trusted cell stays within "
-              f"±{_fmt(s.converged)} %.", ""]
+              f"±{_fmt(s.converged)} % and the AFV stays within ±{_fmt(s.converged)} % of 100 %.", ""]
     return "\n".join(lines)
 
 
@@ -193,6 +211,10 @@ def as_json(a: Analysis, changes: dict[str, MapChanges] | None, checks: list[Che
             "map": res.cylinder.map_name,
             "active": res.active,
             "inactive_reason": res.inactive_reason,
+            "follows": res.follows,
+            "afv_first": res.afv_first,
+            "afv_last": res.afv_last,
+            "afv_stable": res.afv_stable(a.settings),
             "rpm_axis": fmap.rpm.values[:fmap.rpm.used],
             "load_axis": fmap.load.values[:fmap.load.used],
             "afv_range": res.afv_range,
@@ -211,6 +233,7 @@ def as_json(a: Analysis, changes: dict[str, MapChanges] | None, checks: list[Che
         "image": str(image),
         "result": str(out) if out else None,
         "settings": asdict(a.settings),
+        "min_te_source": a.min_te_source,
         "logs": [asdict(log) for log in a.logs],
         "records": a.records,
         "used": a.used,

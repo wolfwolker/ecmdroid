@@ -39,12 +39,13 @@ tools/calconv/calconv.py draft-rules --from BUEIB --to BUECB  # proposed rule fi
 
 Rule files per direction live in `tools/calconv/rules/` (`<FROM>-<TO>.toml`); only entries with `status = "reviewed"` are applied. When you change the DB or the definition logic, expect `tools/calconv/tests/test_plan.py` counts to change. Update `docs/calibration-converter.md` with them. Real images go in the git-ignored `xprs/` folder. Never commit real ECM images without scrubbing page 0 (VIN, serial number, odometer, security PIN). On DDFI/DDFI-2 the serial number and manufacturing date are in page 1 (offsets 9–13), so scrub those too.
 
-`tools/egotune/` automates narrowband fuel-map tuning for DDFI-2 and DDFI-3 (rider steps in `docs/egotune-howto.md`): it reads EcmDroid `.bin` logs and the `.xpr` that was in the ECM during the ride, and writes a new `.xpr` where only `Tab_Fuel_Front`/`Tab_Fuel_Rear` changed. Same conventions as calconv, whose `calconvlib` it imports (it must stay next to `tools/calconv`). Checks on the data (`short-log`, `o2-switching`, `global-offset`, …) block `apply` unless accepted with `--accept NAME`. **To run it for someone, follow [`tools/egotune/SKILL.md`](tools/egotune/SKILL.md)**: never pass `--accept` or loosen a limit without the person asking for it by name, and never burn. It's in testing.
+`tools/egotune/` automates narrowband fuel-map tuning for DDFI-2 and DDFI-3 (rider steps in `docs/egotune-howto.md`): it reads EcmDroid `.bin` logs and the `.xpr` that was in the ECM during the ride, and writes a new `.xpr` where only `Tab_Fuel_Front`/`Tab_Fuel_Rear` changed (`fold-afv`, run once first, also sets the AFV to 100 %). Same conventions as calconv, whose `calconvlib` it imports (it must stay next to `tools/calconv`). Checks on the data (`short-log`, `o2-switching`, `global-offset`, …) block `apply` unless accepted with `--accept NAME`. **To run it for someone, follow [`tools/egotune/SKILL.md`](tools/egotune/SKILL.md)**: never pass `--accept` or loosen a limit without the person asking for it by name, and never burn. It's in testing.
 
 ```sh
 tools/egotune/test.py
-tools/egotune/egotune.py analyse --image iter0.xpr --baseline original.xpr ride.bin   # exit 1 if a check fails
-tools/egotune/egotune.py apply --image iter0.xpr --baseline original.xpr ride.bin --out iter1.xpr -o iter1.md
+tools/egotune/egotune.py fold-afv --image calibrated.xpr --out folded.xpr   # once, before the first round
+tools/egotune/egotune.py analyse --image iter0.xpr --baseline iter0.xpr ride.bin   # exit 1 if a check fails
+tools/egotune/egotune.py apply --image iter0.xpr --baseline iter0.xpr ride.bin --out iter1.xpr -o iter1.md
 ```
 
 ## Architecture

@@ -67,11 +67,36 @@ class Ddfi2Test(unittest.TestCase):
             self.assertAlmostEqual(front.cells[i].mean, rear.cells[i].mean)
             self.assertAlmostEqual(front.cells[i].seconds, rear.cells[i].seconds)
 
-    def test_afv_warning_once(self):
-        warnings = analysis().warnings
-        afv = [w for w in warnings if "stores an AFV" in w]
-        self.assertEqual(len(afv), 1)
-        self.assertIn("the AFV changed since", afv[0])  # the maps match, so it's not the wrong image
+    def test_no_afv_warning(self):
+        # The image stores 108 %, the ride had 100 %. The maps match the log, so it's the right
+        # image, and the AFV doesn't enter the correction anyway.
+        a = analysis()
+        self.assertFalse([w for w in a.warnings if "AFV" in w])
+        self.assertEqual(a.cylinders["rear"].afv_range, (100.0, 100.0))
+        self.assertTrue(a.cylinders["rear"].afv_stable(a.settings))
+
+    def test_fuel_equation(self):
+        """Pulse width = k x table fuel x CrTA x CrTE x (EGO in closed loop, CrOL x AFV in open loop)
+        + CrBat: the EGO correction is the whole closed-loop correction (analysis.py)."""
+        defs = load_runtime_defs(DEFAULT_DB, "BUEIB")
+        log = parse_log(BUEIB_LOG.read_bytes(), defs.frame_len)
+        v = defs.value
+        ks = {True: [], False: []}
+        for rec in log.records:
+            f = rec.frame
+            if not defs.bit(f, "Flags1", 0) or v(f, "RPM") < 500 or v(f, "TabFuel2") <= 0:
+                continue
+            if v(f, "CrAcc") > 0 or any(v(f, n) != 100 for n in ("CrDec", "CrWOT", "CrIdle")):
+                continue
+            pw = v(f, "Fuel2") - v(f, "CrBat")
+            if pw <= 0.3:
+                continue
+            closed = defs.bit(f, "Flags2", 7)
+            corr = v(f, "FBFuel") if closed else v(f, "CrOL") * v(f, "LFuel_LD") / 100
+            ks[closed].append(pw / (v(f, "TabFuel2") * v(f, "CrTA") * v(f, "CrTE") * corr / 1e6))
+        medians = {cl: sorted(x)[len(x) // 2] for cl, x in ks.items()}
+        self.assertGreater(min(len(x) for x in ks.values()), 1000)
+        self.assertAlmostEqual(medians[True] / medians[False], 1.0, delta=0.005)
 
     def test_new_image_keeps_skipped_bytes(self):
         img = image()

@@ -20,7 +20,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, report
+from . import __version__, fold, report
 from .analysis import Settings, analyse
 from .checks import NAMES, run_checks
 from .fuelmap import MapError
@@ -44,14 +44,15 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("logs", type=Path, nargs="+", metavar="LOG.bin", help="EcmDroid binary logs")
     common.add_argument("--id", help="ECM ID, if the logs were recorded without one (UNKWN)")
     common.add_argument("--cylinders", choices=("both", "front", "rear"), default="both",
-                        help="which maps to tune (default: both; front is skipped without front feedback)")
+                        help="which maps to tune (default: both; without front feedback the front map follows the rear)")
     common.add_argument("--db", type=Path, default=DEFAULT_DB,
                         help="ECM definition database (default: the app's bundled one)")
     common.add_argument("--format", choices=("md", "json"), default="md", help="report format (default: md)")
     common.add_argument("-o", "--output", type=Path, help="write the report to this file instead of stdout")
     d = Settings()
     g = common.add_argument_group("filters and limits")
-    g.add_argument("--min-te", type=float, default=d.min_te, help=f"warm engine from (°C, default {d.min_te:g})")
+    g.add_argument("--min-te", type=float, default=d.min_te,
+                   help="warm engine from (°C, default: the image's AFV learning temperature, KLCL_Min_TE)")
     g.add_argument("--max-warmup", type=float, default=d.max_warmup,
                    help=f"accepted warm-up enrichment (%%, default {d.max_warmup:g})")
     g.add_argument("--settle", type=float, default=d.settle,
@@ -67,7 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--max-lean", type=float, default=d.max_lean,
                    help=f"most a cell may lose per iteration (%%, default {d.max_lean:g})")
     g.add_argument("--baseline", type=Path,
-                   help="your original tune (.xpr): no cell moves further from it than --max-from-baseline")
+                   help="the image you started tuning from (after fold-afv): no cell moves further from it than "
+                        "--max-from-baseline")
     g.add_argument("--max-from-baseline", type=float, default=d.max_from_baseline,
                    help=f"most a cell may move away from --baseline (%%, default {d.max_from_baseline:g})")
     g.add_argument("--accept", action="append", default=[], choices=NAMES, metavar="CHECK",
@@ -85,6 +87,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("apply", parents=[common], help="write a new .xpr with the corrected fuel maps")
     p.add_argument("--out", type=Path, required=True, help="where to write the new image (.xpr)")
     p.add_argument("--force", action="store_true", help="overwrite --out if it exists")
+    f = sub.add_parser("fold-afv", help="multiply the fuel maps by the learned AFV and set the AFV to 100 %%")
+    f.add_argument("--image", type=Path, required=True, help="the .xpr saved after the calibration ride")
+    f.add_argument("--out", type=Path, required=True, help="where to write the new image (.xpr)")
+    f.add_argument("--force", action="store_true", help="overwrite --out if it exists")
+    f.add_argument("--id", help="ECM ID, if the image size fits several layouts")
+    f.add_argument("--db", type=Path, default=DEFAULT_DB,
+                   help="ECM definition database (default: the app's bundled one)")
+    f.add_argument("-o", "--output", type=Path, help="write the report to this file instead of stdout")
     return parser
 
 
@@ -99,7 +109,37 @@ def settings_from(args) -> Settings:
     return s
 
 
+def _check_out(args, inputs: list[Path]):
+    for given in inputs:
+        if args.out.resolve() == given.resolve():
+            raise UsageError(f"--out {args.out} would overwrite an input file")
+    if args.out.exists() and not args.force:
+        raise UsageError(f"{args.out} exists. Use --force to overwrite it.")
+
+
+def _write(out: Path, data: bytes):
+    try:
+        out.write_bytes(data)
+    except OSError as e:
+        raise UsageError(f"can't write {out}: {e.strerror}") from e
+
+
+def run_fold(args: argparse.Namespace) -> tuple[str, int]:
+    db = Database(args.db)
+    img = load_image(db, args.image, args.id)
+    _check_out(args, [args.image])
+    folds = fold.plan_fold(img)
+    out = None
+    if any(f.afv != 100 for f in folds):
+        data = fold.build_fold_image(img, folds)
+        _write(args.out, data)
+        out = args.out
+    return fold.markdown(img, folds, fold.warnings_for(img, folds), args.image, out), EXIT_OK
+
+
 def run(args: argparse.Namespace) -> tuple[str, int]:
+    if args.command == "fold-afv":
+        return run_fold(args)
     db = Database(args.db)
     raw_logs = [(path, read_log(path)) for path in args.logs]
     forced = db.resolve_id(args.id) if args.id else None
@@ -128,18 +168,14 @@ def run(args: argparse.Namespace) -> tuple[str, int]:
         baselines = {k: base.physical(base.var(r.cylinder.map_name)) for k, r in a.cylinders.items()}
     else:
         a.warnings.append("No --baseline given: the total change over several rounds isn't limited. "
-                          "Pass your original tune with --baseline.")
+                          "Pass the image you started from (saved after fold-afv) with --baseline.")
     changes = propose_all(a, baselines)
     checks = run_checks(a, changes, tuple(args.accept), baselines is not None)
     blocked = [c for c in checks if c.blocking]
     out = None
     code = EXIT_CHECKS if blocked else EXIT_OK
     if args.command == "apply":
-        for given in [args.image, *args.logs, *([args.baseline] if args.baseline else [])]:
-            if args.out.resolve() == given.resolve():
-                raise UsageError(f"--out {args.out} would overwrite an input file")
-        if args.out.exists() and not args.force:
-            raise UsageError(f"{args.out} exists. Use --force to overwrite it.")
+        _check_out(args, [args.image, *args.logs, *([args.baseline] if args.baseline else [])])
         if not a.used:
             raise UsageError("no usable data in the logs: nothing written (see `egotune analyse`)")
     if args.command == "apply" and blocked:
@@ -148,11 +184,7 @@ def run(args: argparse.Namespace) -> tuple[str, int]:
               "--accept CHECK overrides one after you've looked into it.", file=sys.stderr)
     elif args.command == "apply":
         out = args.out
-        data = build_image(img, changes)
-        try:
-            out.write_bytes(data)
-        except OSError as e:
-            raise UsageError(f"can't write {out}: {e.strerror}") from e
+        _write(out, build_image(img, changes))
     if args.format == "json":
         return report.as_json(a, changes, checks, args.image, out), code
     return report.markdown(a, changes, checks, args.image, out, args.command == "apply" and bool(blocked)), code
@@ -173,6 +205,6 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_ERROR
     else:
         sys.stdout.write(text)
-    if args.command == "apply" and code == EXIT_OK:
+    if args.command in ("apply", "fold-afv") and code == EXIT_OK:
         print(report.TESTING_NOTE, file=sys.stderr)
     return code

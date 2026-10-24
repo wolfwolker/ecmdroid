@@ -20,7 +20,8 @@ confidence grows with the seconds of data in the cell, up to full_seconds.
 These cells keep their value: cells with less than min_seconds of data,
 noisy cells (spread above max_cell_std), outliers (more than `outlier`
 points away from the mean of at least two trusted neighbours: real maps
-change smoothly), and every cell of a cylinder without closed-loop feedback.
+change smoothly), and every cell of a cylinder without closed-loop feedback
+that can't follow the rear one.
 With a baseline (the original tune), no cell moves further than
 max_from_baseline from it; a cell is never pushed against its correction to
 get back inside.

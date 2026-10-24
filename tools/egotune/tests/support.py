@@ -47,7 +47,7 @@ def image():
 
 # A warm, steady, closed-loop record with no correction.
 BASE = {
-    "RPM": 3400, "FLoad": 30, "RLoad": 30, "TE": 90.0, "CrTE": 100.0, "CrAcc": 0.0,
+    "RPM": 3400, "FLoad": 30, "RLoad": 30, "TE": 180.0, "CrTE": 100.0, "CrAcc": 0.0,
     "FBFuel": 100.0, "FBFuel1": 100.0, "LFuel_LD": 100.0, "LFuel1_LD": 100.0,
     "Flags1": 0b00000001, "Flags2": 0b10000000,
 }

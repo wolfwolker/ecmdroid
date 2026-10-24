@@ -56,6 +56,21 @@ class CliTest(unittest.TestCase):
         self.assertIn("**46** (45)", out)
         self.assertIn("No --baseline given", out)
 
+    def test_report_afv_and_temperature(self):
+        self.log.write_bytes(log_bytes(ride(6 * 60, NEIGHBOURS, LFuel_LD=97.0)))
+        code, out, _ = self.call("analyse", "--image", BUE2D_IMAGE, self.log)
+        self.assertEqual(code, 0)
+        self.assertIn("Warm engine from **130 °C** (the image's AFV learning temperature", out)
+        self.assertIn("AFV during the ride: 97.0 % throughout. Fold it into the maps", out)
+
+    def test_report_front_follows_rear(self):
+        self.log.write_bytes(log_bytes(ride(6 * 60, NEIGHBOURS, ego=lambda i: 106.0 if i < 600 else 100.0,
+                                            FBFuel1=100.0)))
+        code, out, _ = self.call("analyse", "--image", BUE2D_IMAGE, self.log)
+        self.assertEqual(code, 0)
+        self.assertIn("Follows the rear correction cell by cell", out)
+        self.assertIn("--cylinders rear to leave it unchanged", out)
+
     def test_analyse_json(self):
         code, out, _ = self.call("analyse", "--format", "json", "--image", BUE2D_IMAGE, self.log)
         self.assertEqual(code, 0)
