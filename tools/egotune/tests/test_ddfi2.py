@@ -49,8 +49,10 @@ class Ddfi2Test(unittest.TestCase):
         self.assertEqual(fmap.values[fmap.index(0, 0)], 23)
         self.assertEqual(fmap.values[fmap.index(11, 12)], 160)
 
-    def test_lookup_matches_the_ecm_exactly(self):
-        # The ECM logs its own map lookup (TabFuel1/2_Raw = map value x 37.5).
+    def test_lookup_follows_the_ecm(self):
+        # The ECM logs its own map lookup (TabFuel1/2_Raw = map value x 37.5). It matches
+        # within 0.1 % on 69 % of the records; the rest are sampled while RPM and load move,
+        # which the robust spread leaves out.
         for res in analysis().cylinders.values():
             self.assertEqual(res.lookup.samples, 13982)
             self.assertAlmostEqual(res.lookup.ratio, 37.5, places=2)

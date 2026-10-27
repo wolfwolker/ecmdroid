@@ -20,7 +20,7 @@ recommend.
 
 > **Status (October 2026): in testing.** egotune checks its own result, but
 > no map it made has been burned and ridden yet. On DDFI-2 its map lookup
-> matches the ECM exactly on a real ride. On DDFI-3 that hasn't been confirmed
+> matches the ECM's own on a real ride. On DDFI-3 that hasn't been confirmed
 > yet, so be extra careful there. Read every report before you burn anything,
 > and keep your original image.
 

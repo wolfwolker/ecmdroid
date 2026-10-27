@@ -17,7 +17,7 @@
 A map is stored row by row: one row per load breakpoint, one column per RPM
 breakpoint. On DDFI-2 each row ends with `skip` (1) unused bytes, so a row
 is cols + skip bytes long (index = row * (cols + skip) + col); the BUEIB test
-log matches this layout exactly. Axes can be stored in descending order, and
+log confirms this layout. Axes can be stored in descending order, and
 unused breakpoints at the end are zero (the BUE2D test image uses 17 of its
 20 RPM columns, the BUEIB one 12 of 13), so only the used part is addressed.
 """

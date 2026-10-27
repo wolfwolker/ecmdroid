@@ -11,7 +11,7 @@ maps. You don't need MegaLogViewer, `.msl` files, a spreadsheet or a map
 editor.
 
 > **In testing.** No map made by egotune has been burned and ridden yet. On
-> DDFI-2 its map lookup matches the ECM exactly on a real ride (see the lookup
+> DDFI-2 its map lookup matches the ECM's own on a real ride (see the lookup
 > check below). On DDFI-3 that hasn't been confirmed yet. Review every change
 > before you burn it, and keep your original image.
 
@@ -150,10 +150,22 @@ then follows the rear one) or one at its limit (`ego-limit`).
   image. If the two don't follow each other, the image probably isn't the one
   that was in the ECM during the ride, or the lookup is wrong for that ECM.
   - **DDFI-2: confirmed.** On the app's BUEIB test image and log (a 42-minute
-    ride), the logged value is exactly 37.5 × the map lookup for both maps on
-    all 13,982 records. 37.5 is the scale of the channel (1 / 0.026666). This
-    confirms the map layout (including the skipped byte at the end of each
-    row), the axes, the bilinear lookup and the load channel.
+    ride, 13,982 records), the logged value is 37.5 × the map lookup for both
+    maps. 37.5 is the scale of the channel (1 / 0.026666). The two agree within
+    0.1 % on 69 % of the records. The rest are taken while the engine moves
+    between operating points: the ECM's lookup and the logged RPM and load
+    aren't sampled at the same moment.
+    - On 8 % of the records the logged value matches the lookup at the
+      previous record's load.
+    - On 22 % it lies between the lookups at the previous and the current
+      operating point (within one load unit).
+    - Only 0.4 % (55 records, all on big RPM or load jumps) fit neither.
+
+    The check uses the median ratio and a robust spread, so these records don't
+    affect it (spread 0.0 %). This confirms the map layout (including the
+    skipped byte at the end of each row), the axes, the bilinear lookup and the
+    load channel. It's also why egotune waits for a settle time after a
+    transient.
   - **DDFI-3: open.** On the BUE2D test image and log, the factor is 58–69
     instead of 37.5, with a spread of 8 % (rear) and 20 % (front), and it
     drifts with load. Those two files don't belong together (the image stores

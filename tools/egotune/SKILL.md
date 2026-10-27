@@ -14,7 +14,7 @@ and one or more logs, and writes a new image. The person burns it with
 EcmDroid, after reviewing it.
 
 **egotune is in testing.** No map it made has been burned and ridden yet. On
-DDFI-2 its map lookup matches the ECM exactly on a real ride; on DDFI-3 that
+DDFI-2 its map lookup matches the ECM's own on a real ride; on DDFI-3 that
 isn't confirmed yet. Say so whenever you hand over a result.
 
 Run the commands from the repository root, as `tools/egotune/egotune.py …`
