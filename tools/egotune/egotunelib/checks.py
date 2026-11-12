@@ -105,13 +105,19 @@ def run_checks(a: Analysis, changes: dict[str, MapChanges], accept: tuple[str, .
     if worst:
         mean, same, key = worst
         offset = abs(mean) > s.offset_mean and same >= s.offset_share
+        if mean > 0:
+            causes = ("The ECM adds fuel almost everywhere. Usual causes: an exhaust leak before the O2 "
+                      "sensor (it reads falsely lean), an intake or vacuum leak, low fuel pressure, a "
+                      "clogged injector or a fuel change.")
+        else:
+            causes = ("The ECM takes fuel out almost everywhere. Usual causes: a base map made for "
+                      "another intake or exhaust, high fuel pressure, a leaking injector, an O2 sensor "
+                      "that reads rich, or a fuel change.")
         out.append(Check("global-offset", not offset,
                          f"{key}: {mean:+.1f} % on average, {100 * same:.0f} % of the data the same way",
                          f"not > {s.offset_mean:g} % with ≥ {100 * s.offset_share:.0f} % the same way",
-                         "Nearly the whole map is off in the same direction. That usually has a cause "
-                         "outside the maps: an exhaust leak before the O2 sensor (reads falsely lean), fuel "
-                         "pressure, a vacuum leak or a fuel change. Find it first (docs/egotune-howto.md, *Before "
-                         "you start*); tuning the maps would hide it."))
+                         f"Nearly the whole map is off in the same direction. {causes} Find the cause first "
+                         "(docs/egotune-howto.md, *Before you start*); tuning the maps would hide it."))
     else:
         out.append(Check("global-offset", True, "no cell with enough data", "", ""))
 

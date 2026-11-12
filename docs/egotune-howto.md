@@ -164,9 +164,13 @@ average, as ECMSpy Mono uses it.
 ### 3. Record a ride
 
 1. In the *Log Recorder*, choose the interval *No Delay* or *250 ms*.
-2. Warm the engine up fully: at least the ECM's AFV-learning temperature
-   (*O2 Setup → AFV Settings → Min. Engine Temp (°C)*, 130 °C on the test
-   images; ECMSpy Mono asks for 160 °C on an air-cooled XB).
+2. Warm the engine up fully. egotune only uses data once the ECM's warm-up
+   enrichment has ended (*CrTE* back to about 100 %): around 160 °C on the
+   BUEIB test ride, the temperature ECMSpy Mono asks for on an air-cooled XB.
+   The ECM enters closed loop much earlier (59 °C on that ride) and passes its
+   AFV-learning temperature (*O2 Setup → AFV Settings → Min. Engine Temp
+   (°C)*, 130 °C on the test images) before the enrichment ends, so neither
+   means the engine is warm enough.
 3. Ride for **at least 30 minutes**, calmly, without hard acceleration or
    overrun. To cover the map, ride at a steady speed in a high gear for 15–20
    seconds, then shift down at the same speed, and repeat up to the top of the
@@ -223,7 +227,7 @@ measured and the limit, and for each failed one what usually causes it:
 | `o2-switching` | the O2 sensor hardly switches between rich and lean | Check the sensor: it may be worn, contaminated or disconnected, or its heater may have failed. |
 | `ego-limit` | the EGO correction sits at its limit too often | The mixture is far off or the sensor reads wrong. Look for exhaust leaks, a faulty sensor or a wrong base map. |
 | `implausible` | readings out of range or jumping faster than an engine can | Check the sensors, the wiring and the adapter connection. |
-| `global-offset` | nearly the whole map is off in the same direction by more than 6 % | Look for a cause outside the maps first (see [Before you start](#before-you-start)): an exhaust leak before the O2 sensor (reads falsely lean, common on Buells), fuel pressure, a vacuum leak, a fuel change. |
+| `global-offset` | nearly the whole map is off in the same direction by more than 6 % | Look for a cause outside the maps first (see [Before you start](#before-you-start)). If the ECM adds fuel: an exhaust leak before the O2 sensor (reads falsely lean, common on Buells), an intake leak, low fuel pressure, a clogged injector. If it takes fuel out: a base map made for another intake or exhaust, high fuel pressure, a leaking injector, an O2 sensor that reads rich. Either way: a fuel change. |
 | `lookup` | egotune's map lookup doesn't match what the ECM logged | Use the image that was in the ECM during the ride (saved right after the last burn). On DDFI-3 this check isn't confirmed yet. |
 | `baseline` | a cell wants to move more than ±15 % from the image you started from | A drift that large usually has a cause outside the maps. |
 

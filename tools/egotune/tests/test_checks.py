@@ -67,6 +67,11 @@ class ChecksTest(unittest.TestCase):
         _, _, checks = checks_for(ride(6 * 60, NEIGHBOURS, ego=112.0))
         self.assertFalse(checks["global-offset"].passed)
         self.assertIn("exhaust leak", checks["global-offset"].advice)
+        _, _, checks = checks_for(ride(6 * 60, NEIGHBOURS, ego=85.0))
+        self.assertFalse(checks["global-offset"].passed)
+        self.assertIn("-15.0 %", checks["global-offset"].measured)
+        self.assertIn("leaking injector", checks["global-offset"].advice)
+        self.assertNotIn("exhaust leak", checks["global-offset"].advice)
 
     def test_wrong_image(self):
         frames = ride(6 * 60, NEIGHBOURS)

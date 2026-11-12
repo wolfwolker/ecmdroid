@@ -107,8 +107,9 @@ then says *Overridden with --accept*. The checks are: `short-log`,
 - `lookup` on DDFI-3 can fail because the check isn't confirmed there yet.
   Say so, and recommend extra care with the result.
 - `global-offset` can be accepted only after the person has ruled out the
-  causes in the advice line (exhaust leak, fuel pressure, vacuum leak, fuel
-  change).
+  causes in the advice line, which depend on the direction (adding fuel:
+  exhaust or intake leak, low fuel pressure; taking it out: a base map for
+  another intake or exhaust, high fuel pressure, a leaking injector).
 
 ## Guardrails
 
