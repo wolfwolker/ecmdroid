@@ -105,6 +105,12 @@ class Settings:
     min_te: float | None = None  # °C; None: the image's KLCL_Min_TE (Calibration Mode Minimum Engine Temperature)
     max_warmup: float = 0.5  # % of warm-up enrichment (CrTE above 100 %) still accepted
     settle: float = 1.0  # s to skip after a transient or enrichment event
+    # Acceleration enrichment that never goes above this (%) is a blip: the ECM adds it for a
+    # slight throttle movement (about 0.5°), often every few seconds at a steady speed. Those
+    # records are left out, but they don't restart the settle time: within a second after one,
+    # the EGO correction differs from steady data in the same cell by 0.3 points or less
+    # (BUEIB, and two rides on a BUEYD).
+    blip: float = 2.0
     rpm_rate: float = 1500.0  # rpm/s counted as a transient
     load_rate: float = 40.0  # load units/s counted as a transient
     max_gap: float = 1.0  # s between records counted as a gap (a transient)
@@ -316,6 +322,7 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
         prev = None
         prev_cl = None  # the last warm closed-loop record, for the O2 switching
         last_event = -math.inf
+        event = False  # the current run of enrichment records went above a blip
         times = [r.time for r in log.records]
         steps = sorted(b - a for a, b in zip(times, times[1:]) if b > a)
         typical = steps[len(steps) // 2] if steps else 0.2
@@ -353,9 +360,11 @@ def analyse(img: Image, defs: RuntimeDefs, logs: list[BinLog], settings: Setting
                             ratios[key].append(math.log(logged / expected))
 
             closed = defs.bit(f, "Flags2", CLOSED_LOOP)
-            enrich = (defs.bit(f, "Flags1", ACCEL) or defs.bit(f, "Flags1", DECEL)
-                      or defs.value(f, "CrAcc") > 0)
-            if not closed or enrich:
+            accel = defs.value(f, "CrAcc")
+            flagged = defs.bit(f, "Flags1", ACCEL) or defs.bit(f, "Flags1", DECEL)
+            enrich = flagged or accel > 0
+            event = enrich and (event or flagged or accel > settings.blip)
+            if not closed or event:
                 last_event = t  # also restarts the settle time when closed loop begins
 
             # A working narrowband sensor keeps switching between rich and lean in closed loop.

@@ -91,6 +91,18 @@ class TuneTest(unittest.TestCase):
         a, _ = self.run_tune(frames, s)
         self.assertEqual(a.excluded["transient"], 5 + 1 + 5)  # first second, the jump, and back
 
+    def test_accel_blip_doesnt_restart_the_settle_time(self):
+        s = Settings(settle=1.0)
+        blip = wobble(10, 106) + [frame(CrAcc=1.5)] + wobble(10, 106)
+        a, _ = self.run_tune(blip, s)
+        self.assertEqual(a.excluded["accel/decel enrichment"], 1)
+        self.assertEqual(a.excluded["transient"], 5)  # only the first second of the log
+        # Above the blip limit, or a blip that continues a larger enrichment: the full settle time.
+        for event in ([frame(CrAcc=2.5)], [frame(CrAcc=4.0), frame(CrAcc=1.0)]):
+            a, _ = self.run_tune(wobble(10, 106) + event + wobble(10, 106), s)
+            self.assertEqual(a.excluded["accel/decel enrichment"], len(event))
+            self.assertGreaterEqual(a.excluded["transient"], 5 + 4)  # 4 or 5 records in the second after
+
     def test_afv_isnt_part_of_the_correction(self):
         # In closed loop the ECM applies the EGO correction, not the AFV (analysis.py).
         a, _ = self.run_tune([frame(FBFuel=106, LFuel_LD=100 + i / 25, FBFuel1=106 + i % 5)

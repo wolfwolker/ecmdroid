@@ -57,7 +57,9 @@ stays near 100 %.
   Every other byte stays the same, and egotune checks that.
 - It only uses **warm, steady, closed-loop** data: the engine at the ECM's own
   AFV-learning temperature, no warm-up, acceleration or deceleration
-  enrichment, and not in the second after a throttle or RPM change.
+  enrichment, and not in the second after a throttle or RPM change. The tiny
+  enrichment the ECM adds when your hand moves the throttle slightly while
+  cruising only drops that one record.
 - It only changes cells with **enough data**. A cell changes from 5 seconds of
   data, with the full step only from 17 seconds: about 100 records at *No
   Delay*, what ECMSpy Mono asks for.

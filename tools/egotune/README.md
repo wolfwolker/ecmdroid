@@ -68,6 +68,15 @@ on its own, and never burns.
    transient. A transient is an RPM or load jump, a gap in the log, an
    enrichment event or the start of closed loop. The report counts what was
    left out and why.
+   - An acceleration enrichment that stays at 2 % or less is a *blip*: the
+     ECM adds it for a throttle movement of about half a degree, which at a
+     steady speed happens every few seconds (about 500 times in a 27-minute
+     ride on a BUEYD). The blip record is left out, but it doesn't restart
+     the settle time. Within a second after a blip the EGO correction differs
+     from steady data in the same cell by 0.3 points or less (BUEIB, and two
+     BUEYD rides), while restarting the settle time after every blip threw
+     away two thirds of that BUEYD ride. Larger or flagged enrichment, and a
+     blip that continues one, still restarts it.
    - It's the warm-up limit that decides when the engine counts as warm. On
      the BUEIB test ride the ECM enters closed loop at 59 °C, `CrTE` is still
      102–103 % at 120–130 °C and drops to 100.5 % only around 160 °C, so
@@ -132,12 +141,12 @@ column).
 
 | Check | Fails when | Usual cause | BUEIB ride |
 |---|---|---|---|
-| `short-log` | less than 5 min of usable data | too short a ride, mostly cold, open loop or WOT | 12.1 min |
+| `short-log` | less than 5 min of usable data | too short a ride, mostly cold, open loop or WOT | 15.8 min |
 | `slow-interval` | more than 0.5 s between records | a slow recording interval: transients can't be filtered out | 0.17 s |
 | `o2-switching` | the rear O2 sensor switches rich/lean less than 0.5 times a second in warm closed loop (or there's less than 60 s of it) | a worn, contaminated or disconnected sensor, or a failed heater | 2.56 /s |
 | `ego-limit` | more than 5 % of the data has the EGO correction at its limit | mixture far off, or a faulty sensor | 0 % |
 | `implausible` | more than 1 % of the records are implausible (see above) | faulty sensors, wiring or adapter connection | 0 % |
-| `global-offset` | the mean correction is over 6 % and at least 85 % of the data points the same way | a cause outside the maps. Adding fuel: an exhaust leak before the O2 sensor (reads falsely lean), an intake leak, low fuel pressure, a clogged injector. Taking it out: a base map for another intake or exhaust, high fuel pressure, a leaking injector, an O2 sensor that reads rich. Either way: a fuel change | +3.6 %, 93 % |
+| `global-offset` | the mean correction is over 6 % and at least 85 % of the data points the same way | a cause outside the maps. Adding fuel: an exhaust leak before the O2 sensor (reads falsely lean), an intake leak, low fuel pressure, a clogged injector. Taking it out: a base map for another intake or exhaust, high fuel pressure, a leaking injector, an O2 sensor that reads rich. Either way: a fuel change | +3.2 %, 90 % |
 | `lookup` | egotune's map lookup doesn't follow the ECM's logged one (spread above 5 %) | the wrong image (see below) | 0.0 % |
 | `baseline` | a cell wants to move further than ±15 % from `--baseline` | drift over many rounds, or a problem outside the maps | 0 cells |
 
